@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alchemists Postings —  Alchemists</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <nav>
+    <a href="/" class="active">Alchemists Postings</a>
+    <a href="/tracking">Status Tracking</a>
+  </nav>
+</div>
+
+<div class="container full">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Alchemists <span class="accent">Postings</span></h1>
+      <p class="page-sub">Select a job to view its candidate pipeline.</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn secondary" onclick="openEmailCfg()">✉ Config Email Template</button>
+      <a class="btn secondary" href="/tracking">📊 Status Tracking</a>
+    </div>
+  </div>
+
+  <!-- Scrape from SEEK -->
+  <div class="scrape-panel">
+    <div class="sp-head" onclick="toggleScrape()">
+      <div>
+        <h3>🔄 Scrape from SEEK</h3>
+        <p class="sp-sub">Fetch your active job ads from the SEEK portal, then download a job's candidates into the database.</p>
+      </div>
+      <button class="btn ghost" id="spToggle">Open ▾</button>
+    </div>
+    <div class="scrape-body" id="scrapeBody">
+      <div class="scrape-steps">
+        <button class="btn" id="fetchBtn" onclick="fetchJobs()"><span class="step-num">1</span> Fetch active jobs</button>
+        <input type="text" id="scrapeSearch" class="stage-search" style="width:200px;margin:0;display:none"
+               placeholder="🔎 Filter jobs…" oninput="renderScrapeJobs()">
+        <select id="scrapeJobs" disabled><option value="">— fetch jobs first —</option></select>
+        <button class="btn" id="downloadBtn" onclick="downloadCandidates()" disabled><span class="step-num">2</span> Download candidates</button>
+        <span class="scrape-status" id="scrapeStatus"></span>
+      </div>
+      <div class="scrape-progress" id="scrapeProgress" style="display:none">
+        <div class="sp-bar"><div class="sp-bar-fill" id="spBarFill"></div></div>
+        <div class="sp-prog-text" id="spProgText"></div>
+      </div>
+      <div class="scrape-log" id="scrapeLog"></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button id="tab-online" class="active" onclick="setTab('online')">
+      Online <span class="tab-count" id="cnt-online">0</span>
+    </button>
+    <button id="tab-offline" onclick="setTab('offline')">
+      Offline <span class="tab-count" id="cnt-offline">0</span>
+    </button>
+  </div>
+
+  <div class="job-list" id="jobList">
+    <div class="empty-state">Loading…</div>
+  </div>
+</div>
+<!-- Config Email Template modal -->
+<div class="modal-overlay" id="emailCfgModal">
+  <div class="modal wide">
+    <h3>✉ Config Email Template</h3>
+    <p class="muted" id="cfgHint" style="font-size:12.5px;margin:0 0 14px"></p>
+    <div class="auth-box" id="emailAuthBox">
+      <div id="emailAuthStatus" class="muted" style="font-size:13px">Checking sign-in…</div>
+      <button class="btn secondary" id="emailSignInBtn" onclick="startEmailLogin()"
+              style="display:none;margin-top:8px">🔑 Sign in to email</button>
+      <div id="emailAuthCode" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
+        1. Open <a id="emailAuthUri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
+        2. Enter code: <b id="emailAuthUserCode" style="font-size:16px;letter-spacing:1px"></b><br>
+        3. Sign in as your sender mailbox — <span class="muted" id="emailAuthWait">waiting for you to finish…</span>
+      </div>
+    </div>
+    <div class="tmpl-bar">
+      <label style="flex:1">Template
+        <select id="cfgTemplateSel" onchange="onTemplatePick()"></select>
+      </label>
+      <button class="btn ghost tiny" onclick="newTemplate()">+ New</button>
+      <button class="btn ghost tiny" onclick="deleteTemplate()">🗑 Delete</button>
+    </div>
+    <div class="cfg-grid">
+      <label>Template name<input id="cfgName" placeholder="e.g. Implementer Interview"></label>
+      <label>Type
+        <select id="cfgType" onchange="onTypeChange()">
+          <option value="exam">Exam — to the candidate</option>
+          <option value="shortlist">Shortlist — group draft to your team</option>
+          <option value="interview">Interview — Outlook calendar event</option>
+        </select>
+      </label>
+      <label>Company<input id="cfgCompany"></label>
+      <label>Default deadline time<input id="cfgDeadlineTime" type="time"></label>
+      <label class="chk"><input type="checkbox" id="cfgIsHtml" onchange="updatePreview()"> HTML body</label>
+    </div>
+    <label style="margin-top:12px">Attachment file paths — one per line
+      <textarea id="cfgAttachments" rows="3" placeholder="E:\jobdb_scraping\exam\INS-Imp.pdf&#10;E:\jobdb_scraping\exam\logic.pdf"></textarea>
+    </label>
+    <label style="margin-top:12px">Subject<input id="cfgSubject"></label>
+    <label style="margin-top:12px">
+      Body <button type="button" class="btn ghost tiny" style="float:right" onclick="togglePreview()">👁 Preview</button>
+      <textarea id="cfgBody" rows="14" oninput="if(previewOn) updatePreview()"></textarea>
+    </label>
+    <div id="cfgPreview" style="display:none;margin-top:10px">
+      <div class="muted" style="font-size:12px;margin-bottom:4px">Preview (with sample candidate data):</div>
+      <iframe id="cfgPreviewFrame" class="preview-frame" title="Email preview"></iframe>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeEmailCfg()">Cancel</button>
+      <button class="btn" id="cfgSaveBtn" onclick="saveEmailCfg()">Save template</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+let jobs = [], currentTab = "online";
+
+/* ---------- Config Email Template (multiple templates) ---------- */
+let cfgTemplates = [], cfgCurrentId = null;
+
+function fillTemplateFields(t){
+  t = t || {};
+  $("#cfgName").value = t.name||""; $("#cfgCompany").value = t.company||"";
+  $("#cfgType").value = ["shortlist","interview"].includes(t.type) ? t.type : "exam";
+  $("#cfgAttachments").value = (t.attachments||[]).join("\n");
+  $("#cfgIsHtml").checked = !!t.is_html;
+  $("#cfgDeadlineTime").value = t.default_deadline_time||"23:59";
+  $("#cfgSubject").value = t.subject||""; $("#cfgBody").value = t.body||"";
+  onTypeChange();
+}
+
+// Show the placeholders / behaviour that apply to the selected template type.
+function onTypeChange(){
+  const type = $("#cfgType").value;
+  if(type === "shortlist"){
+    $("#cfgHint").innerHTML = `Drafted in your mailbox when you move selected candidates to <b>Shortlist</b> — one group email. Placeholders: `
+      + `<code>{candidates}</code> <code>{job_title}</code> <code>{company}</code> <code>{link_document}</code>`
+      + ` &nbsp;(<code>{candidates}</code> = numbered name + AI-summary list; <code>{link_document}</code> = the OneDrive résumé folder name)`;
+  } else if(type === "interview"){
+    $("#cfgHint").innerHTML = `Creates an <b>Outlook calendar event</b> draft when you move a candidate to <b>Interview</b>. Placeholders: `
+      + `<code>{full_name_edit}</code> <code>{firstname}</code> <code>{job_title}</code> <code>{company}</code>`
+      + ` &nbsp;(leave <code>&lt;TEAM&gt;</code>, <code>&lt;Prefix&gt;</code> and the Date &amp; Time line to edit in Outlook)`;
+  } else {
+    $("#cfgHint").innerHTML = `Sent when HR moves a candidate to <b>Sent Exam</b>. Placeholders: `
+      + `<code>{full_name_edit}</code> <code>{job_title}</code> <code>{company}</code> <code>{deadline}</code>`;
+  }
+  if(previewOn) updatePreview();
+}
+window.onTypeChange = onTypeChange;
+
+/* ---- live preview ---- */
+let previewOn = false;
+const PREVIEW_SAMPLE = { full_name_edit:"Nattapong Yuwasirinun", firstname:"Nattapong",
+  job_title:"Software Implementer & SA", deadline:"20 April 2026, before 11.59 pm",
+  candidates:"1.  Kasamsak Wongsanin\nQA engineer with MSSQL querying and automation "
+    + "testing on UAT using Robot Framework and Selenium; defines test cases and scenarios.\n\n"
+    + "2.  Kriangsak Sochai\nNew-grad full-stack developer; builds and refactors RESTful "
+    + "APIs with NestJS and supports PostgreSQL operations and migrations.",
+  candidates_html:'<p style="margin:0 0 2px"><b>1.&nbsp; Kasamsak Wongsanin</b></p>'
+    + '<ul style="margin:4px 0 16px 22px"><li>QA engineer; MSSQL querying.</li>'
+    + '<li>Automation testing on UAT with Robot Framework and Selenium.</li></ul>'
+    + '<p style="margin:0 0 2px"><b>2.&nbsp; Kriangsak Sochai</b></p>'
+    + '<ul style="margin:4px 0 16px 22px"><li>New-grad full-stack developer; NestJS REST APIs.</li>'
+    + '<li>Supports PostgreSQL operations and migrations.</li></ul>',
+  link_document:"Software_Implementer_08_06_2026",
+  link_document_html:'<a href="#" style="color:#1155cc;font-weight:bold;text-decoration:underline">Software_Implementer_08_06_2026</a>' };
+function fillSample(text){
+  const html = $("#cfgIsHtml").checked;
+  return (text||"")
+    .replaceAll("{full_name_edit}", PREVIEW_SAMPLE.full_name_edit)
+    .replaceAll("{firstname}", PREVIEW_SAMPLE.firstname)
+    .replaceAll("{job_title}", PREVIEW_SAMPLE.job_title)
+    .replaceAll("{company}", $("#cfgCompany").value||"")
+    .replaceAll("{deadline}", PREVIEW_SAMPLE.deadline)
+    .replaceAll("{candidates}", html ? PREVIEW_SAMPLE.candidates_html : PREVIEW_SAMPLE.candidates)
+    .replaceAll("{link_document}", html ? PREVIEW_SAMPLE.link_document_html : PREVIEW_SAMPLE.link_document);
+}
+function updatePreview(){
+  const isHtml = $("#cfgIsHtml").checked;
+  const subj = esc(fillSample($("#cfgSubject").value));
+  const bodyFilled = fillSample($("#cfgBody").value);
+  const bodyHtml = isHtml ? bodyFilled
+    : `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${esc(bodyFilled)}</pre>`;
+  $("#cfgPreviewFrame").srcdoc =
+    `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111;padding:6px">`
+    + `<div style="color:#555"><b>Subject:</b> ${subj}</div><hr>${bodyHtml}</div>`;
+}
+window.updatePreview = updatePreview;
+function togglePreview(){
+  previewOn = !previewOn;
+  $("#cfgPreview").style.display = previewOn ? "" : "none";
+  if(previewOn) updatePreview();
+}
+window.togglePreview = togglePreview;
+function renderTemplateOptions(){
+  const sel = $("#cfgTemplateSel");
+  sel.innerHTML = cfgTemplates.map(t => `<option value="${esc(t.id)}">${esc(t.name)||"(untitled)"}</option>`).join("")
+    + `<option value="__new__">➕ New template…</option>`;
+  if(cfgCurrentId) sel.value = cfgCurrentId;
+}
+async function openEmailCfg(){
+  try {
+    const r = await (await fetch("/api/email-templates")).json();
+    cfgTemplates = r.templates || [];
+    cfgCurrentId = cfgTemplates.length ? cfgTemplates[0].id : null;
+    renderTemplateOptions();
+    fillTemplateFields(cfgTemplates[0]);
+    $("#emailCfgModal").classList.add("open");
+    refreshEmailAuth();
+  } catch(e){ toast("Could not load templates: "+e, 6000); }
+}
+window.openEmailCfg = openEmailCfg;
+
+function onTemplatePick(){
+  const id = $("#cfgTemplateSel").value;
+  if(id === "__new__"){ newTemplate(); return; }
+  cfgCurrentId = id;
+  fillTemplateFields(cfgTemplates.find(t => t.id === id));
+}
+window.onTemplatePick = onTemplatePick;
+
+function newTemplate(){
+  cfgCurrentId = null;                 // no id → save creates a new one
+  fillTemplateFields({name:"", company:"Freewill Solutions Co., Ltd.", default_deadline_time:"23:59"});
+  $("#cfgTemplateSel").value = "__new__";
+  $("#cfgName").focus();
+}
+window.newTemplate = newTemplate;
+
+async function deleteTemplate(){
+  if(!cfgCurrentId){ newTemplate(); return; }
+  const t = cfgTemplates.find(x => x.id === cfgCurrentId);
+  if(!confirm(`Delete template "${t?t.name:""}"?`)) return;
+  try {
+    const r = await (await fetch("/api/email-templates/delete", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:cfgCurrentId})})).json();
+    if(!r.ok) throw new Error("delete failed");
+    cfgTemplates = r.templates||[]; cfgCurrentId = cfgTemplates.length?cfgTemplates[0].id:null;
+    renderTemplateOptions(); fillTemplateFields(cfgTemplates[0]);
+    toast("Template deleted.", 2500);
+  } catch(e){ toast("Could not delete: "+e, 6000); }
+}
+window.deleteTemplate = deleteTemplate;
+
+let emailAuthPoll = null;
+function renderEmailAuth(s){
+  const isPending = s.status === "pending" && !s.signed_in;
+  $("#emailAuthCode").style.display = (isPending && s.user_code) ? "" : "none";
+  if(s.signed_in){
+    $("#emailAuthStatus").innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — emails send as this mailbox.`;
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "Re-sign in";
+  } else if(isPending){
+    $("#emailAuthStatus").textContent = "Complete the sign-in below:";
+    $("#emailSignInBtn").style.display = "none";
+    if(s.user_code){ $("#emailAuthUserCode").textContent = s.user_code;
+      if(s.verification_uri) $("#emailAuthUri").href = s.verification_uri; }
+  } else {
+    $("#emailAuthStatus").innerHTML = s.error
+      ? `⚠ ${esc(s.error)}` : "Not signed in — sending requires a one-time sign-in.";
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
+  }
+}
+async function refreshEmailAuth(){
+  try { renderEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
+}
+async function startEmailLogin(){
+  $("#emailSignInBtn").disabled = true;
+  try {
+    renderEmailAuth(await (await fetch("/api/email/login-start", {method:"POST"})).json());
+    clearInterval(emailAuthPoll);
+    emailAuthPoll = setInterval(async () => {
+      const s = await (await fetch("/api/email/login-status")).json();
+      renderEmailAuth(s);
+      if(s.signed_in || s.status === "error"){
+        clearInterval(emailAuthPoll); emailAuthPoll = null;
+        if(s.signed_in) toast("Signed in to email as " + s.account + ".", 3000);
+      }
+    }, 2500);
+  } catch(e){ toast("Could not start sign-in: "+e, 6000); }
+  finally { $("#emailSignInBtn").disabled = false; }
+}
+window.startEmailLogin = startEmailLogin;
+function closeEmailCfg(){ clearInterval(emailAuthPoll); emailAuthPoll=null; $("#emailCfgModal").classList.remove("open"); }
+window.closeEmailCfg = closeEmailCfg;
+async function saveEmailCfg(){
+  const name = $("#cfgName").value.trim();
+  if(!name){ alert("Please give the template a name."); $("#cfgName").focus(); return; }
+  const btn = $("#cfgSaveBtn"); btn.disabled = true; btn.textContent = "Saving…";
+  const payload = {
+    id: cfgCurrentId || undefined, name,
+    type: $("#cfgType").value,
+    company: $("#cfgCompany").value.trim(),
+    attachments: $("#cfgAttachments").value.split("\n").map(s=>s.trim()).filter(Boolean),
+    is_html: $("#cfgIsHtml").checked,
+    default_deadline_time: $("#cfgDeadlineTime").value || "23:59",
+    subject: $("#cfgSubject").value, body: $("#cfgBody").value,
+  };
+  try {
+    const r = await (await fetch("/api/email-templates", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)})).json();
+    if(!r.ok) throw new Error("save failed");
+    cfgTemplates = r.templates||[]; cfgCurrentId = r.template.id;
+    renderTemplateOptions(); fillTemplateFields(r.template);
+    toast("Template saved.", 2500);
+  } catch(e){ toast("Could not save: "+e, 6000); }
+  finally { btn.disabled = false; btn.textContent = "Save template"; }
+}
+window.saveEmailCfg = saveEmailCfg;
+
+function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
+
+async function load(){
+  jobs = await (await fetch("/api/jobs")).json();
+  render();
+}
+function byStatus(active){ return jobs.filter(j => !!j.is_active === active); }
+
+function render(){
+  $("#cnt-online").textContent = byStatus(true).length;
+  $("#cnt-offline").textContent = byStatus(false).length;
+  const list = currentTab === "online" ? byStatus(true) : byStatus(false);
+  const box = $("#jobList");
+  if(!list.length){ box.innerHTML = `<div class="empty-state">No ${currentTab} Alchemists postings.${jobs.length?"":" Run the scraper first."}</div>`; return; }
+  box.innerHTML = list.map(j => {
+    const status = j.is_active
+      ? `<span class="status online"><span class="dot">●</span> Online</span>`
+      : `<span class="status offline"><span class="dot">●</span> Offline</span>`;
+    const meta = [esc(j.location)||"—", j.scraped_at?("Updated "+esc(j.scraped_at)):null].filter(Boolean).join(" · ");
+    const fresh = j.new ? `<span class="badge-new">${j.new} New</span>` : "";
+    return `<a class="job-card" href="/job/${encodeURIComponent(j.job_id)}">
+      <div>${status}
+        <label class="switch" style="margin-top:8px" onclick="event.stopPropagation();event.preventDefault();toggleActive('${j.job_id}',this)">
+          <input type="checkbox" ${j.is_active?"checked":""}> Active
+        </label>
+      </div>
+      <div>
+        <p class="job-name">${esc(j.title)||"(untitled)"}</p>
+        <div class="job-meta">${meta}</div>
+      </div>
+      <div class="applicants">
+        <div class="num">${j.applicants}${fresh}</div>
+        <div class="lbl">Candidates</div>
+      </div>
+      <div class="go">›</div>
+    </a>`;
+  }).join("");
+}
+
+function setTab(tab){
+  currentTab = tab;
+  $("#tab-online").classList.toggle("active", tab==="online");
+  $("#tab-offline").classList.toggle("active", tab==="offline");
+  render();
+}
+window.setTab = setTab;
+
+/* ---------------- Scrape from SEEK ---------------- */
+let scrapePoll = null, scrapeJobsList = null;
+
+// Rebuild the job dropdown from the fetched list, filtered by the search box.
+function renderScrapeJobs(){
+  const sel = $("#scrapeJobs"), search = $("#scrapeSearch");
+  if(!scrapeJobsList){ return; }
+  search.style.display = scrapeJobsList.length ? "" : "none";
+  const q = search.value.trim().toLowerCase();
+  const list = scrapeJobsList.filter(j =>
+    q==="" || (j.title||"").toLowerCase().includes(q) || (j.job_id||"").toLowerCase().includes(q));
+  if(!scrapeJobsList.length){
+    sel.innerHTML = `<option value="">(no active jobs found)</option>`; sel.disabled = true;
+  } else if(!list.length){
+    sel.innerHTML = `<option value="">(no jobs match "${esc(search.value.trim())}")</option>`; sel.disabled = true;
+  } else {
+    sel.innerHTML = list.map(j => `<option value="${esc(j.job_id)}">${esc(j.title)||"(untitled)"} — ${esc(j.job_id)}</option>`).join("");
+    sel.disabled = false;
+  }
+  $("#downloadBtn").disabled = !sel.value;
+}
+window.renderScrapeJobs = renderScrapeJobs;
+
+function toggleScrape(){
+  const body = $("#scrapeBody"); const open = body.classList.toggle("open");
+  $("#spToggle").textContent = open ? "Close ▴" : "Open ▾";
+}
+
+async function fetchJobs(){
+  $("#fetchBtn").disabled = true; $("#downloadBtn").disabled = true;
+  setStatus("running", "Opening browser & logging in… (solve the CAPTCHA in the window if it appears)");
+  await fetch("/api/scrape/fetch-jobs", {method:"POST"});
+  startPolling();
+}
+
+async function downloadCandidates(){
+  const jid = $("#scrapeJobs").value;
+  if(!jid){ toast("Pick a job from the dropdown first."); return; }
+  const title = $("#scrapeJobs").selectedOptions[0]?.textContent || jid;
+  if(!confirm(`Download candidates + resumes for "${title}"?\nThis can take several minutes.`)) return;
+  $("#fetchBtn").disabled = true; $("#downloadBtn").disabled = true;
+  setStatus("running", "Downloading candidates…");
+  await fetch("/api/scrape/download", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({job_id: jid})});
+  startPolling();
+}
+
+function startPolling(){
+  $("#scrapeLog").classList.add("show");
+  clearInterval(scrapePoll);
+  scrapePoll = setInterval(pollScrape, 1500);
+  pollScrape();
+}
+
+function fmtDur(sec){
+  if(sec==null) return "";
+  sec = Math.max(0, Math.round(sec));
+  const m = Math.floor(sec/60), s = sec%60;
+  return m ? `${m}m ${s}s` : `${s}s`;
+}
+
+// Render the download progress bar from a status snapshot (download action only).
+function renderProgress(s){
+  const wrap=$("#scrapeProgress"), fill=$("#spBarFill"), txt=$("#spProgText");
+  const show = s.action==="download" && (s.status==="running" || s.status==="done");
+  if(!show){ wrap.style.display="none"; return; }
+  wrap.style.display="";
+  const p = s.progress || {}, done = p.done||0, total = p.total||0;
+  if(total > 0){
+    const pct = Math.min(100, Math.round(done/total*100));
+    fill.classList.remove("indeterminate");
+    fill.style.width = (s.status==="done" ? 100 : pct) + "%";
+    if(s.status==="done"){ txt.textContent = `✔ ${done} candidate(s) in ${fmtDur(p.elapsed_sec)}`; }
+    else {
+      let t = `${done} / ${total} candidates (${pct}%)`;
+      t += (p.eta_sec!=null && done>0) ? ` · ~${fmtDur(p.eta_sec)} left` : ` · estimating…`;
+      txt.textContent = t;
+    }
+  } else {
+    // Total unknown — show an indeterminate bar with a running count + elapsed.
+    fill.classList.add("indeterminate"); fill.style.width = "40%";
+    txt.textContent = s.status==="done"
+      ? `✔ ${done} candidate(s) in ${fmtDur(p.elapsed_sec)}`
+      : `${done} candidate(s)… ${fmtDur(p.elapsed_sec)} elapsed`;
+  }
+}
+
+async function pollScrape(){
+  let s; try { s = await (await fetch("/api/scrape/status")).json(); } catch(e){ return; }
+  // live log
+  if(s.log && s.log.length){ const el=$("#scrapeLog"); el.textContent=s.log.join("\n"); el.scrollTop=el.scrollHeight; }
+  // job dropdown becomes available as soon as fetch returns the list
+  if(s.jobs){ scrapeJobsList = s.jobs; renderScrapeJobs(); }
+  renderProgress(s);
+  if(s.status === "running"){
+    setStatus("running", s.action==="download" ? "Downloading candidates…" : "Fetching active jobs…");
+    return;
+  }
+  // finished (done | error | idle)
+  clearInterval(scrapePoll); scrapePoll = null;
+  $("#fetchBtn").disabled = false;
+  $("#downloadBtn").disabled = !$("#scrapeJobs").value;
+  if(s.status === "error"){ setStatus("error", "⚠ " + (s.error || "Scrape failed. See log above.")); }
+  else if(s.status === "done"){
+    if(s.action === "download"){ setStatus("done", "✔ Download complete — refreshing job list."); load(); }
+    else { setStatus("done", s.jobs && s.jobs.length ? `✔ Found ${s.jobs.length} active job(s) — pick one above.` : "✔ Done — no active jobs found."); }
+  } else { setStatus("", ""); }
+}
+
+function setStatus(cls, text){
+  const el = $("#scrapeStatus");
+  el.className = "scrape-status " + cls;
+  el.innerHTML = (cls==="running" ? '<span class="spinner"></span>' : "") + esc(text);
+}
+window.toggleScrape = toggleScrape; window.fetchJobs = fetchJobs; window.downloadCandidates = downloadCandidates;
+
+async function toggleActive(jobId, label){
+  // preventDefault() (stops the card navigating) also cancels the checkbox's
+  // native toggle, so flip it ourselves.
+  const cb = label.querySelector("input");
+  cb.checked = !cb.checked;
+  await fetch("/api/jobs/active", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({job_id: jobId, is_active: cb.checked})});
+  const j = jobs.find(x => x.job_id === jobId); if(j) j.is_active = cb.checked;
+  toast(`Job marked ${cb.checked?"online (active)":"offline (inactive)"}.`);
+  render();
+}
+window.toggleActive = toggleActive;
+
+load();
+
+// If a scrape is already in progress (e.g. after a page reload), resume showing it.
+(async function resumeScrape(){
+  try {
+    const s = await (await fetch("/api/scrape/status")).json();
+    if(s.status === "running" || (s.jobs && s.jobs.length)){
+      $("#scrapeBody").classList.add("open"); $("#spToggle").textContent = "Close ▴";
+      startPolling();
+    }
+  } catch(e){}
+})();
+</script>
+<script src="{{ url_for('static', filename='fantasy.js') }}"></script>
+</body>
+</html>

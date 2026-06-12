@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ job.title or 'Pipeline' }} — Alchemists</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <nav>
+    <a href="/" class="active">Alchemists Postings</a>
+    <a href="/tracking">Status Tracking</a>
+  </nav>
+</div>
+
+<div class="container full">
+  <a class="back-link" href="/">← Back to Alchemists postings</a>
+  <h1 class="page-title">{{ job.title or '(untitled)' }} <span class="accent">— Pipeline</span></h1>
+  <p class="page-sub">Advance a candidate one step at a time — drag a card onto the next stage, or use the button. Steps cannot be skipped.</p>
+
+  <div class="board">
+    <div class="sidebar">
+      <h3>🔎 Filter</h3>
+      <input type="text" id="search" class="stage-search" placeholder="Search name…" oninput="render()">
+      <div class="sort-block">
+        <span class="sort-label">💰 Sort by expected salary</span>
+        <div class="sort-row">
+          <button class="btn tiny secondary" id="sortAsc" onclick="setSort('salary_asc')">↑ Low → High</button>
+          <button class="btn tiny secondary" id="sortDesc" onclick="setSort('salary_desc')">↓ High → Low</button>
+        </div>
+      </div>
+      <ul class="stage-menu" id="stageMenu"></ul>
+    </div>
+    <div class="cards" id="cards"><div class="empty-state">Loading…</div></div>
+  </div>
+</div>
+
+<!-- date modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle">Set date</h3>
+    <p id="modalDesc"></p>
+    <label id="modalLabel" for="modalDate">Date</label>
+    <input type="date" id="modalDate">
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="confirmMove()">Confirm</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- send-exam modal (Move to Sent Exam: pick a deadline, email the candidate, then advance) -->
+<div class="modal-overlay" id="examModal">
+  <div class="modal">
+    <h3>✉ Send exam &amp; move to Sent Exam</h3>
+    <p id="examDesc"></p>
+    <label for="examTemplate">Email template</label>
+    <select id="examTemplate" onchange="onExamTemplatePick()"></select>
+    <label for="examDate" style="margin-top:12px">Deadline date</label>
+    <input type="date" id="examDate">
+    <label for="examTime" style="margin-top:12px">Deadline time</label>
+    <input type="time" id="examTime" value="23:59">
+    <p class="muted" style="font-size:12px;margin-top:12px">The interview/exam email is sent to the
+      candidate; on success they move to <b>Sent Exam</b>. Edit the wording via
+      <b>Config Email Template</b> on the home page.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeExamModal()">Cancel</button>
+      <button class="btn" id="examSendBtn" onclick="confirmSendExam()">Send &amp; move</button>
+    </div>
+  </div>
+</div>
+
+<!-- evaluation modal (Move to Evaluation: fill form → generate Excel + draft email) -->
+<div class="modal-overlay" id="evalModal">
+  <div class="modal wide">
+    <h3>📝 Evaluation form &amp; draft email</h3>
+    <p id="evalDesc"></p>
+    <div class="cfg-grid">
+      <label style="grid-column:1/3">ชื่อ-นามสกุล (Name)
+        <input type="text" id="evName" readonly></label>
+      <label>ตำแหน่งที่สมัคร (Position)
+        <select id="evPosition"></select></label>
+      <label>บทบาท (Role)
+        <input type="text" id="evRole" placeholder="role"></label>
+      <label>บริษัท (Company)
+        <select id="evCompany"></select></label>
+      <label>ฝ่าย (Department)
+        <select id="evDept"></select></label>
+      <label>แผนก (Section)
+        <select id="evSection"></select></label>
+      <label>วันที่สัมภาษณ์ (Interview date)
+        <input type="date" id="evDate"></label>
+      <label>ผู้สัมภาษณ์ (Interviewer)
+        <input type="text" id="evInterviewer" placeholder="e.g. Upakit"></label>
+      <label>ผู้สรรหา (Recruiter)
+        <input type="text" id="evRecruiter" placeholder="recruiter"></label>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:14px">On confirm: the candidate moves to
+      <b>Evaluation</b>, the Excel form is generated (<span id="evalFileHint"></span>), and an Outlook
+      <b>draft</b> email — form attached, manual PDF linked — is created for you to review &amp; send.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeEvalModal()">Cancel</button>
+      <button class="btn" id="evalBtn" onclick="confirmEval()">Confirm &amp; create</button>
+    </div>
+  </div>
+</div>
+
+<!-- offer modal (Move to Offered: fill form → draft job-offer confirmation email) -->
+<div class="modal-overlay" id="offerModal">
+  <div class="modal wide">
+    <h3>🎉 Job-offer confirmation &amp; draft email</h3>
+    <p id="offerDesc"></p>
+    <div class="cfg-grid">
+      <label>People Count
+        <input type="number" id="ofCount" min="1" value="1"></label>
+      <label>Type
+        <select id="ofType"></select></label>
+      <label style="grid-column:1/3"><span id="ofNRLabel">New</span>
+        <input type="text" id="ofNRText" list="ofNRList" autocomplete="off"
+               placeholder="pick or type…">
+        <datalist id="ofNRList"></datalist></label>
+      <label>Direct Supervisor
+        <input type="text" id="ofSupervisor" placeholder="e.g. Tanapon Hemmala"></label>
+      <label>Buddy
+        <input type="text" id="ofBuddy" placeholder="e.g. Natcha Rengthong"></label>
+      <label>Expected Salary
+        <input type="text" id="ofExpSalary" placeholder="e.g. 25K"></label>
+      <label>Current Salary
+        <input type="text" id="ofCurSalary" value="-"></label>
+      <label>Start Date
+        <input type="text" id="ofStart" placeholder="e.g. 30 days"></label>
+      <label style="grid-column:1/3">Experience (headline — free text)
+        <input type="text" id="ofExperience"
+          placeholder="e.g. (Freelance) experience with Automated Data Scraping for SME"></label>
+      <div style="grid-column:1/3">
+        <label>AI experience detail — 2 bullet points (🧪 editable)
+          <textarea id="ofExperienceAI" rows="3" style="width:100%;resize:vertical"
+            placeholder="⚗️ Generating experience summary…"></textarea></label>
+        <button type="button" class="btn tiny secondary" id="ofExpRegen"
+          onclick="regenerateOfferExperience(this)" style="margin-top:6px">↻ Regenerate</button>
+      </div>
+      <label style="grid-column:1/3">Interviewer (from DB, editable)
+        <input type="text" id="ofInterviewer" placeholder="e.g. Natcha Rengthong, Tanapon Hemmala"></label>
+      <label style="grid-column:1/3">ความเห็นผู้สัมภาษณ์ (editable)
+        <textarea id="ofInterviewComments" rows="5" style="width:100%;resize:vertical"></textarea></label>
+      <label style="grid-column:1/3">ความเห็นฝ่าย Recruit (editable)
+        <textarea id="ofRecruit" rows="6" style="width:100%;resize:vertical"></textarea></label>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:14px">On confirm: the candidate moves to
+      <b>Offered</b>, the OneDrive Shortlists link is auto-attached, and an Outlook
+      <b>draft</b> of the offer-confirmation email (To left blank) is created to review &amp; send.
+      Department, Section, Role, Position &amp; Job Level come from the candidate record.</p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeOfferModal()">Cancel</button>
+      <button class="btn" id="offerBtn" onclick="confirmOffer()">Confirm &amp; create draft</button>
+    </div>
+  </div>
+</div>
+
+<!-- resume drawer (slides in from the right) -->
+<div class="drawer-overlay" id="resumeOverlay" onclick="closeResume()"></div>
+<aside class="drawer" id="resumeDrawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h3 id="resumeName">Resume</h3>
+    <div class="drawer-head-actions">
+      <a class="btn ghost tiny" id="resumeOpen" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
+      <button class="btn ghost tiny" onclick="closeResume()">✕ Close</button>
+    </div>
+  </div>
+  <iframe id="resumeFrame" class="drawer-frame" title="Resume PDF"></iframe>
+</aside>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+// Format a phone number as XXX-XXX-XXXX (Thai +66/66 country code -> leading 0).
+// Idempotent. Values that can't reduce to 10 digits are returned unchanged.
+function fmtPhone(p){
+  if(!p) return "";
+  let d = (""+p).replace(/\D/g,"");
+  if(d.length===11 && d.startsWith("66")) d = "0"+d.slice(2);
+  else if(d.length===12 && d.startsWith("660")) d = d.slice(2);
+  return d.length===10 ? `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}` : p;
+}
+// HR-editable honorific prefix. "" = unset (shown as —).
+const TITLES = ["", "Mr.", "Ms.", "Mrs."];
+const titleOpts = sel => TITLES.map(t =>
+  `<option value="${t}"${(sel||"")===t?" selected":""}>${t||"—"}</option>`).join("");
+const STAGES = {{ stages|tojson }};
+const MOVES = {{ moves|tojson }};                       // allowed transitions per stage
+const EVAL_OPTS = {{ eval_options|tojson }};            // dropdown lists for the evaluation form
+const OFFER_DEFAULTS = {{ offer_defaults|tojson }};     // Type options + default recruiter comments
+const JOB_ID = {{ job.job_id|tojson }};
+const JOB_TITLE = {{ (job.title or "")|tojson }};       // บทบาท (Role) default for the eval form
+const stageIndex = k => STAGES.findIndex(s => s.key === k);
+const STAGE_LABEL = Object.fromEntries(STAGES.map(s => [s.key, s.label]));
+const DATE_LABELS = { shortlist:"Shortlist date", interview:"Interview date", evaluation:"Evaluation date", offered:"Offer date" };
+// Numbered 1..6 for the main flow; Not Interest is an off-ramp (✕, no number).
+const FLOW = ["prescreen","sent_exam","shortlist","interview","evaluation","offered"];
+const stageNum = k => { const i = FLOW.indexOf(k); return i>=0 ? (i+1) : "✕"; };
+const allowedTargets = key => MOVES[key] || [];
+// A move is "backward" when the target sits earlier in the linear FLOW than the
+// current stage (off-ramp not_interest is not part of FLOW, so it's never backward).
+function isBackward(curr, target){
+  const ci = FLOW.indexOf(curr), ti = FLOW.indexOf(target);
+  return ci >= 0 && ti >= 0 && ti < ci;
+}
+
+let candidates = [], selectedStage = "prescreen", draggedId = null, pendingMove = null;
+let sortMode = "";
+const selectedIds = new Set();   // checked candidates (Sent Exam multi-select)
+
+// Parse an expected-salary string ("30K", "30,000", "25-30k", "฿28000") into a
+// number for sorting. Returns null when there's no parseable figure.
+function salaryVal(c){
+  const raw = (c.expect_salary || "").toString().toLowerCase();
+  const m = raw.replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  if(!m) return null;
+  let v = parseFloat(m[0]);
+  if(raw.includes("k") && v < 1000) v *= 1000;   // "30k" -> 30000
+  return isNaN(v) ? null : v;
+}
+
+function setSort(mode){ sortMode = (sortMode === mode) ? "" : mode; render(); }
+window.setSort = setSort;
+
+function toast(msg, ms=4000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
+
+async function load(){
+  candidates = await (await fetch(`/api/candidates?job_id=${encodeURIComponent(JOB_ID)}`)).json();
+  render();
+}
+
+function filtered(){
+  const q = $("#search").value.trim().toLowerCase();
+  let list = candidates.filter(c => (c.stage||"prescreen") === selectedStage &&
+    (q==="" || ((c.full_name_edit||c.full_name_jobdb||"")+" "+(c.full_name_jobdb||"")).toLowerCase().includes(q)));
+  if(sortMode){
+    const dir = sortMode === "salary_asc" ? 1 : -1;
+    list = list.slice().sort((a, b) => {
+      const av = salaryVal(a), bv = salaryVal(b);
+      if(av == null && bv == null) return 0;
+      if(av == null) return 1;        // candidates with no salary always sort last
+      if(bv == null) return -1;
+      return (av - bv) * dir;
+    });
+  }
+  return list;
+}
+function stageCount(k){ return candidates.filter(c => (c.stage||"prescreen")===k).length; }
+
+/* ---------- stage move ---------- */
+// Core move: POST + optimistic local update mirroring the server backfill.
+// Throws on failure; does NOT toast or re-render (callers decide).
+async function doMove(id, stageKey, date){
+  const r = await (await fetch("/api/candidates/stage", {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({application_id:id, stage:stageKey, date})})).json();
+  if(!r.ok) throw new Error(r.error||"move failed");
+  const c = candidates.find(x => x.application_id===id);
+  if(c){
+    c.stage = stageKey;
+    const idx = stageIndex(stageKey);
+    if(idx >= stageIndex("sent_exam")) c.is_sent_exam = true;   // Sent Exam or beyond
+    if(idx >= stageIndex("shortlist")) c.cv_sent = true;        // Shortlist or beyond
+    if(date){   // forward moves carry a date; backward moves keep the recorded one
+      if(stageKey==="shortlist") c.shortlist_date = date;
+      if(stageKey==="interview") c.interview_date = date;
+      if(stageKey==="evaluation") c.evaluation_date = date;
+      if(stageKey==="offered")   c.offer_date = date;
+    }
+    if(stageKey==="sent_exam") fetchSummary(id);   // start the résumé summary now
+  }
+  return r.stage_label || STAGE_LABEL[stageKey];
+}
+
+// Single-candidate move (toast + re-render).
+async function applyMove(id, stageKey, date){
+  try { const lbl = await doMove(id, stageKey, date); toast(`Moved to ${lbl}.`, 2500); }
+  catch(e){ toast("Could not move: "+e.message, 6000); }
+  render();
+}
+
+function requestMove(id, stageKey){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const curr = c.stage || "prescreen";
+  if(!allowedTargets(curr).includes(stageKey)) return;
+  // Backward move = plain stage correction: no email/draft/folder side effects,
+  // and recorded dates are preserved. Confirm, then move directly.
+  if(isBackward(curr, stageKey)){
+    const who = c.full_name_edit || c.full_name_jobdb || "this candidate";
+    if(confirm(`Move ${who} back to ${STAGE_LABEL[stageKey]}?\n(No email or draft will be created.)`))
+      applyMove(id, stageKey, null);
+    return;
+  }
+  // Moving to Sent Exam emails the candidate first (deadline modal).
+  if(stageKey==="sent_exam"){ openExamModal(id); return; }
+  // Moving to Interview creates a calendar-event draft (no date prompt).
+  if(stageKey==="interview"){ moveToInterview(id); return; }
+  // Moving to Evaluation opens the form popup (generates Excel + draft email).
+  if(stageKey==="evaluation"){ openEvalModal(id); return; }
+  // Moving to Offered opens the offer-confirmation form popup (draft email).
+  if(stageKey==="offered"){ openOfferModal(id); return; }
+  // Moving to Shortlist: confirm (no date), then move the folder + create the draft.
+  if(stageKey==="shortlist"){
+    const who = c.full_name_edit || c.full_name_jobdb || "this candidate";
+    if(confirm(`Move ${who} to Shortlist?`)) shortlistMove([id]);
+    return;
+  }
+  // Stages without a date advance immediately — no prompt.
+  if(!DATE_LABELS[stageKey]){ applyMove(id, stageKey, null); return; }
+  pendingMove = { id, stageKey };
+  const label = STAGES[stageIndex(stageKey)].label;
+  $("#modalTitle").textContent = `Move to ${label}`;
+  $("#modalDesc").textContent = `${c.full_name_edit||c.full_name_jobdb} → ${label}`;
+  $("#modalLabel").textContent = DATE_LABELS[stageKey];
+  $("#modalDate").value = new Date().toISOString().slice(0,10);
+  $("#modal").classList.add("open");
+  $("#modalDate").focus();
+}
+window.requestMove = requestMove;
+
+// Move to Interview (no date prompt) + create an Outlook calendar-event draft.
+async function moveToInterview(id){
+  try {
+    await doMove(id, "interview", null);
+    toast("Moved to Interview — creating calendar event draft…", 3000);
+    const r = await (await fetch("/api/candidates/interview-event", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id})})).json();
+    toast(r.ok ? "Interview calendar event draft created in your Outlook."
+               : "Moved to Interview, but the event draft failed: " + (r.error||""), r.ok?4000:7000);
+  } catch(e){ toast("Could not move: " + e.message, 6000); }
+  render();
+}
+window.moveToInterview = moveToInterview;
+
+/* ---------- Evaluation: form popup → Excel + draft email ---------- */
+let pendingEval = null;
+// Fill a <select> with options; preselect `sel` if it matches one.
+function fillSelect(el, opts, sel){
+  el.innerHTML = `<option value="">— select —</option>` +
+    opts.map(o => `<option value="${esc(o)}"${o===sel?" selected":""}>${esc(o)}</option>`).join("");
+}
+function openEvalModal(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  pendingEval = id;
+  const title = c.name_title || "";
+  const name = c.full_name_edit || c.full_name_jobdb || "";
+  const prefixName = title ? `${title} ${name}` : name;
+  $("#evalDesc").innerHTML = `<b>${esc(prefixName||"this candidate")}</b> → Evaluation`;
+  $("#evName").value = prefixName;
+  fillSelect($("#evPosition"), EVAL_OPTS.positions, "");
+  fillSelect($("#evCompany"), EVAL_OPTS.companies, "");
+  fillSelect($("#evDept"), EVAL_OPTS.departments, "");
+  fillSelect($("#evSection"), EVAL_OPTS.sections, "");
+  $("#evRole").value = c.job_title || JOB_TITLE || "";       // บทบาท prefilled from job title
+  $("#evDate").value = c.interview_date || new Date().toISOString().slice(0,10);
+  $("#evInterviewer").value = "";
+  $("#evRecruiter").value = "";
+  $("#evalFileHint").textContent = "";
+  $("#evalModal").classList.add("open");
+  // live filename hint
+  const upd = () => { $("#evalFileHint").textContent =
+    `${$("#evSection").value||"NA"}_Interview Evaluate Form for ${name||"Candidate"}.xlsx`; };
+  $("#evSection").onchange = upd; upd();
+  $("#evPosition").focus();
+}
+window.openEvalModal = openEvalModal;
+function closeEvalModal(){ pendingEval=null; $("#evalModal").classList.remove("open"); }
+window.closeEvalModal = closeEvalModal;
+
+async function confirmEval(){
+  if(!pendingEval) return;
+  const id = pendingEval;
+  const payload = {
+    application_id: id,
+    position: $("#evPosition").value, role: $("#evRole").value.trim(),
+    company: $("#evCompany").value, department: $("#evDept").value,
+    section: $("#evSection").value, interview_date: $("#evDate").value,
+    interviewer: $("#evInterviewer").value.trim(), recruiter: $("#evRecruiter").value.trim(),
+  };
+  const btn = $("#evalBtn"); btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const r = await (await fetch("/api/candidates/evaluation", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})).json();
+    if(!r.ok) throw new Error(r.error || "failed");
+    const c = candidates.find(x => x.application_id===id);
+    if(c){ c.stage = "evaluation"; c.evaluation_date = payload.interview_date || null; }
+    closeEvalModal();
+    toast(`Moved to Evaluation — form "${r.file}" generated & draft email created.`, 5000);
+    render();
+  } catch(e){
+    toast("Could not create evaluation: " + e.message, 7000);
+  } finally { btn.disabled = false; btn.textContent = "Confirm & create"; }
+}
+window.confirmEval = confirmEval;
+
+/* ---------- Offer: form popup → job-offer confirmation draft email ---------- */
+let pendingOffer = null;
+function openOfferModal(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  pendingOffer = id;
+  const title = c.name_title || "";
+  const name = c.full_name_edit || c.full_name_jobdb || "";
+  const prefixName = title ? `${title} ${name}` : name;
+  $("#offerDesc").innerHTML = `<b>${esc(prefixName||"this candidate")}</b> → Offered`;
+  // Type dropdown (รับใหม่ / ทดแทน) — drives the New/Replace label.
+  const types = OFFER_DEFAULTS.types || ["รับใหม่","ทดแทน"];
+  $("#ofType").innerHTML = types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  // New/Replace reason: editable combobox (datalist suggestions + free text).
+  const nrOpts = OFFER_DEFAULTS.new_replace_options || [];
+  $("#ofNRList").innerHTML = nrOpts.map(o => `<option value="${esc(o)}"></option>`).join("");
+  $("#ofNRText").value = nrOpts[0] || "";   // prefill first option; user can pick another or edit
+  $("#ofCount").value = 1;
+  $("#ofSupervisor").value = "";
+  $("#ofBuddy").value = "";
+  $("#ofExpSalary").value = c.expect_salary || "";          // prefill from DB
+  $("#ofCurSalary").value = "-";
+  $("#ofStart").value = "";
+  $("#ofExperience").value = "";                             // headline free text
+  $("#ofInterviewer").value = c.interviewer || "";           // from DB, editable
+  $("#ofInterviewComments").value = OFFER_DEFAULTS.interviewer_comments || "";
+  $("#ofRecruit").value = OFFER_DEFAULTS.recruiter_comments || "";
+  const updNR = () => { $("#ofNRLabel").textContent =
+    (($("#ofType").value||"").trim()==="ทดแทน") ? "Replace" : "New"; };
+  $("#ofType").onchange = updNR; updNR();
+  $("#offerModal").classList.add("open");
+  $("#ofCount").focus();
+  fetchOfferExperience(id);                 // AI Experience blurb (cached or generated)
+}
+window.openOfferModal = openOfferModal;
+
+// Load (cached) or generate the AI Experience blurb into the popup textarea.
+async function fetchOfferExperience(id, force=false){
+  const ta = $("#ofExperienceAI");
+  ta.value = ""; ta.disabled = true;
+  ta.placeholder = force ? "⚗️ Regenerating experience summary…"
+                         : "⚗️ Generating experience summary…";
+  try {
+    const r = await (await fetch("/api/candidates/offer-experience", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, force})})).json();
+    if(pendingOffer !== id) return;          // popup changed/closed while generating
+    if(r.ok){ ta.value = r.experience || ""; }
+    else { ta.placeholder = "Could not generate — type manually. (" + (r.error||"") + ")"; }
+  } catch(e){ ta.placeholder = "Generation failed — type the experience manually."; }
+  finally { ta.disabled = false; }
+}
+function regenerateOfferExperience(btn){
+  if(!pendingOffer) return;
+  const lbl = btn.textContent; btn.disabled = true; btn.textContent = "Regenerating…";
+  fetchOfferExperience(pendingOffer, true)
+    .finally(() => { btn.disabled = false; btn.textContent = lbl; });
+}
+window.regenerateOfferExperience = regenerateOfferExperience;
+function closeOfferModal(){ pendingOffer=null; $("#offerModal").classList.remove("open"); }
+window.closeOfferModal = closeOfferModal;
+
+async function confirmOffer(){
+  if(!pendingOffer) return;
+  const id = pendingOffer;
+  const payload = {
+    application_id: id,
+    people_count: $("#ofCount").value.trim() || "1",
+    offer_type: $("#ofType").value,
+    new_replace_text: $("#ofNRText").value.trim(),
+    supervisor: $("#ofSupervisor").value.trim(),
+    buddy: $("#ofBuddy").value.trim(),
+    expected_salary: $("#ofExpSalary").value.trim(),
+    current_salary: $("#ofCurSalary").value.trim() || "-",
+    start_date: $("#ofStart").value.trim(),
+    experience: $("#ofExperience").value.trim(),
+    experience_detail: $("#ofExperienceAI").value,
+    interviewer: $("#ofInterviewer").value.trim(),
+    interviewer_comments: $("#ofInterviewComments").value,
+    recruiter_comments: $("#ofRecruit").value,
+  };
+  const btn = $("#offerBtn"); btn.disabled = true; btn.textContent = "Creating…";
+  try {
+    const r = await (await fetch("/api/candidates/offer", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})).json();
+    if(!r.ok) throw new Error(r.error || "failed");
+    const c = candidates.find(x => x.application_id===id);
+    if(c){ c.stage = "offered"; c.offer_date = new Date().toISOString().slice(0,10); }
+    closeOfferModal();
+    toast(`Moved to Offered — offer draft email created${r.has_link?" (Shortlists link attached)":" (no Shortlists link found)"}.`, 6000);
+    render();
+  } catch(e){
+    toast("Could not create offer draft: " + e.message, 7000);
+  } finally { btn.disabled = false; btn.textContent = "Confirm & create draft"; }
+}
+window.confirmOffer = confirmOffer;
+
+async function confirmMove(){
+  const date = $("#modalDate").value;
+  if(!date){ alert("Please pick a date."); return; }
+  if(!pendingMove) return;
+  const { id, stageKey } = pendingMove;
+  closeModal();
+  await applyMove(id, stageKey, date);
+}
+window.confirmMove = confirmMove;
+function closeModal(){ pendingMove=null; $("#modal").classList.remove("open"); }
+window.closeModal = closeModal;
+
+/* ---------- Sent Exam multi-select → bulk advance to Shortlist ---------- */
+function toggleSelect(id, on){ if(on) selectedIds.add(id); else selectedIds.delete(id); updateBulkBar(); }
+
+function toggleSelectAll(on){
+  const ids = filtered().map(c => c.application_id);
+  if(on) ids.forEach(id => selectedIds.add(id)); else selectedIds.clear();
+  renderCards();
+}
+window.toggleSelectAll = toggleSelectAll;
+
+function updateBulkBar(){
+  const bar = document.querySelector(".bulk-bar"); if(!bar) return;
+  const list = filtered();
+  const visible = new Set(list.map(c => c.application_id));
+  [...selectedIds].forEach(id => { if(!visible.has(id)) selectedIds.delete(id); });  // prune
+  const n = selectedIds.size;
+  bar.querySelector("#selCount").textContent = `${n} selected`;
+  bar.querySelector("#bulkMove").disabled = n === 0;
+  const selAll = bar.querySelector("#selAll");
+  if(selAll){
+    selAll.checked = n > 0 && n === list.length;
+    selAll.indeterminate = n > 0 && n < list.length;
+  }
+}
+
+// Advance every selected candidate to Shortlist (no date prompt) and create the
+// group draft email. The draft is the confirmation step, so no modal here.
+// Move one or more candidates to Shortlist: advance the stage, MOVE each
+// candidate's Email_Reply_Exam folder into the dated Shortlists folder, and create
+// the group draft email. Shared by the single Shortlist button and the bulk action.
+async function shortlistMove(ids){
+  if(!ids.length) return;
+  let ok = 0, fail = 0; const movedIds = [];
+  for(const id of ids){
+    try { await doMove(id, "shortlist", null); ok++; movedIds.push(id); }   // null = no shortlist date
+    catch(e){ fail++; }
+  }
+  selectedIds.clear();
+  // Move folders + build ONE "shortlist" draft (candidates + summaries) in the mailbox.
+  let draftMsg = "";
+  if(movedIds.length){
+    try {
+      const r = await (await fetch("/api/candidates/shortlist-email", {method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({application_ids: movedIds})})).json();
+      draftMsg = r.ok
+        ? ` Draft created — ${r.moved} candidate folder${r.moved!==1?"s":""} moved into “${r.folder}”${r.has_link?" (share link added)":""}.`
+        : ` (Draft/move failed: ${r.error})`;
+    } catch(e){ draftMsg = ` (Draft/move failed: ${e.message})`; }
+  }
+  toast(`Moved ${ok} to Shortlist${fail?` — ${fail} failed`:""}.${draftMsg}`, 6000);
+  render();
+}
+
+async function bulkMoveToShortlist(){
+  const ids = [...selectedIds].filter(id => {
+    const c = candidates.find(x => x.application_id===id);
+    return c && (c.stage||"prescreen") === "sent_exam";
+  });
+  if(!ids.length) return;
+  if(!confirm(`Move ${ids.length} selected candidate${ids.length!==1?"s":""} to Shortlist and create a group draft email?`)) return;
+  const btn = $("#bulkMove"); if(btn){ btn.disabled = true; btn.textContent = "Working…"; }
+  await shortlistMove(ids);
+}
+window.bulkMoveToShortlist = bulkMoveToShortlist;
+
+/* ---------- send exam + move to Sent Exam ---------- */
+let pendingExam = null, examTemplates = [];
+// Load the available email templates for the picker.
+fetch("/api/email-templates").then(r=>r.json()).then(r=>{
+  examTemplates = (r.templates || []).filter(t => (t.type||"exam") !== "shortlist");
+  $("#examTemplate").innerHTML = examTemplates.map(t =>
+    `<option value="${esc(t.id)}">${esc(t.name)||"(untitled)"}</option>`).join("");
+  onExamTemplatePick();
+}).catch(()=>{});
+
+function onExamTemplatePick(){
+  const t = examTemplates.find(x => x.id === $("#examTemplate").value);
+  if(t && t.default_deadline_time) $("#examTime").value = t.default_deadline_time;
+}
+window.onExamTemplatePick = onExamTemplatePick;
+
+function openExamModal(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  pendingExam = id;
+  const who = c.full_name_edit || c.full_name_jobdb || "this candidate";
+  $("#examDesc").innerHTML = `Email <b>${esc(who)}</b> at <b>${esc(c.email)||"(no email!)"}</b>, then move to <b>Sent Exam</b>.`;
+  $("#examDate").value = new Date().toISOString().slice(0,10);
+  onExamTemplatePick();
+  $("#examModal").classList.add("open");
+  $("#examDate").focus();
+}
+window.openExamModal = openExamModal;
+
+function closeExamModal(){ pendingExam=null; $("#examModal").classList.remove("open"); }
+window.closeExamModal = closeExamModal;
+
+async function confirmSendExam(){
+  if(!pendingExam) return;
+  const date = $("#examDate").value, time = $("#examTime").value || "23:59";
+  if(!date){ alert("Please pick a deadline date."); return; }
+  const id = pendingExam, btn = $("#examSendBtn");
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const r = await (await fetch("/api/candidates/send-exam", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, deadline:`${date}T${time}`,
+        template_id:$("#examTemplate").value})})).json();
+    if(!r.ok) throw new Error(r.error||"send failed");
+    const c = candidates.find(x => x.application_id===id);
+    if(c){ c.stage = "sent_exam"; c.is_sent_exam = true; }
+    fetchSummary(id);   // start the résumé summary now
+    closeExamModal();
+    toast(`Exam emailed — moved to ${r.stage_label||"Sent Exam"}.`, 3000);
+    render();
+  } catch(e){ toast("Could not send: "+e.message, 7000); }
+  finally { btn.disabled = false; btn.textContent = "Send & move"; }
+}
+window.confirmSendExam = confirmSendExam;
+
+/* ---------- resume drawer ---------- */
+function openResume(id, name){
+  const url = `/resume/${encodeURIComponent(id)}`;
+  $("#resumeName").textContent = name || "Resume";
+  $("#resumeFrame").src = url;
+  $("#resumeOpen").href = url;
+  $("#resumeDrawer").classList.add("open");
+  $("#resumeOverlay").classList.add("open");
+  $("#resumeDrawer").setAttribute("aria-hidden", "false");
+}
+window.openResume = openResume;
+function closeResume(){
+  $("#resumeDrawer").classList.remove("open");
+  $("#resumeOverlay").classList.remove("open");
+  $("#resumeDrawer").setAttribute("aria-hidden", "true");
+  $("#resumeFrame").src = "about:blank";   // stop loading / free the PDF
+}
+window.closeResume = closeResume;
+document.addEventListener("keydown", e => { if(e.key==="Escape") closeResume(); });
+
+/* ---------- inline edit (name / email / phone) ---------- */
+async function saveField(e){
+  const inp = e.target, card = inp.closest(".cand-card"), id = card.dataset.id;
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const get = f => card.querySelector(`.cd-edit[data-f="${f}"]`).value.trim();
+  const phoneInp = card.querySelector('.cd-edit[data-f="phone"]');
+  phoneInp.value = fmtPhone(phoneInp.value);   // normalize what's shown + saved
+  c.full_name_edit = get("full_name_edit"); c.email = get("email"); c.phone = get("phone");
+  c.name_title = get("name_title");
+  try {
+    const r = await (await fetch("/api/candidates/update", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, full_name_edit:c.full_name_edit,
+        nickname:c.nickname||"", email:c.email, phone:c.phone, name_title:c.name_title})})).json();
+    if(!r.ok) throw new Error("save failed");
+    inp.classList.add("saved"); setTimeout(()=>inp.classList.remove("saved"), 1200);
+  } catch(err){ toast("Could not save: "+err, 6000); }
+}
+
+/* ---------- render ---------- */
+function renderMenu(){
+  const menu = $("#stageMenu");
+  menu.innerHTML = STAGES.map(s => `
+    <li class="stage-item ${s.key===selectedStage?"active":""}" data-key="${s.key}"
+        onclick="selectStage('${s.key}')">
+      <span class="s-left"><span class="s-num">${stageNum(s.key)}</span> ${s.label}</span>
+      <span class="s-count">${stageCount(s.key)}</span>
+    </li>`).join("");
+  const targets = allowedTargets(selectedStage);
+  menu.querySelectorAll(".stage-item").forEach(li => {
+    const key = li.dataset.key;
+    li.addEventListener("dragover", e => { if(targets.includes(key)) e.preventDefault(); });
+    li.addEventListener("drop", e => { e.preventDefault();
+      if(targets.includes(key) && draggedId!=null) requestMove(draggedId, key); });
+  });
+}
+
+function examPill(c){
+  if(c.is_sent_exam) return `<span class="pill yes">✔ Exam sent</span>`;
+  return `<span class="pill no">✘ Exam not sent</span>`;
+}
+
+/* ---------- exam reply detection (Sent Exam stage only) ---------- */
+const replyInFlight = new Set();
+const REPLY_STAGES = new Set(["sent_exam"]);
+
+// Reply status pill (wrapped so refreshReplyCard can replace it in place).
+function replyPill(c){
+  if(!REPLY_STAGES.has(c.stage||"prescreen")) return "";
+  let inner;
+  if(c.reply_received === true){
+    const when = c.reply_at ? " · " + esc((""+c.reply_at).slice(0,16)) : "";
+    inner = `<span class="pill yes" title="${esc(c.reply_subject||"Replied")}">✉ Replied${when}</span>`;
+  } else if(c.reply_received === false){
+    inner = `<span class="pill no" title="No reply found in your mailbox">✉ No reply yet</span>`;
+  } else {
+    inner = `<span class="pill wait" title="Checking your mailbox…">✉ Checking…</span>`;
+  }
+  return `<span class="reply-pill">${inner}</span>`;
+}
+
+// Replace just one card's reply pill (no clobber of summary edits in progress).
+function refreshReplyCard(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const card = document.querySelector(`.cand-card[data-id="${CSS.escape(id)}"]`);
+  const pill = card && card.querySelector(".reply-pill");
+  if(pill) pill.outerHTML = replyPill(c);
+}
+
+// Check (and cache) one candidate's reply; force=true re-checks + re-downloads.
+async function fetchReply(id, force=false){
+  const c = candidates.find(x => x.application_id===id);
+  if(!c || !REPLY_STAGES.has(c.stage||"prescreen")) return;
+  if(!force && c.reply_received !== null && c.reply_received !== undefined) return;
+  if(replyInFlight.has(id)) return;
+  replyInFlight.add(id);
+  try {
+    const r = await (await fetch("/api/candidates/check-reply", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, force})})).json();
+    if(r.ok){ c.reply_received = !!r.replied; c.reply_at = r.at; c.reply_subject = r.subject; }
+  } catch(e){ /* leave as "Checking…"; retried on next view */ }
+  finally { replyInFlight.delete(id); refreshReplyCard(id); }
+}
+
+// Auto-check visible, not-yet-checked cards when viewing a reply-relevant stage.
+function ensureReplies(){
+  if(!REPLY_STAGES.has(selectedStage)) return;
+  filtered().forEach(c => {
+    if(c.reply_received === null || c.reply_received === undefined) fetchReply(c.application_id);
+  });
+}
+
+// Manual "Check replies": re-check only candidates NOT already marked Replied
+// (i.e. "No reply yet" / not-yet-checked). Already-replied cards are left alone.
+async function recheckReplies(){
+  const targets = filtered().filter(c => c.reply_received !== true);
+  if(!targets.length){ toast("Everyone here has already replied — nothing to re-check.", 3000); return; }
+  targets.forEach(c => { c.reply_received = null; refreshReplyCard(c.application_id); });
+  toast(`Checking mailbox for ${targets.length} candidate${targets.length!==1?"s":""}…`, 2500);
+  await Promise.all(targets.map(c => fetchReply(c.application_id, true)));
+  toast("Reply check complete.", 2000);
+}
+window.recheckReplies = recheckReplies;
+
+/* ---------- AI résumé summary (Sent Exam stage only) ---------- */
+const summaryInFlight = new Set();   // dedupe concurrent generate requests
+
+// The ChatGPT summary block, shown ONLY on cards in the Sent Exam stage.
+// Once generated (or if there's no resume to auto-summarise) it's an editable,
+// saveable textarea so HR can fix the wording or write one by hand.
+function summaryBlock(c){
+  if(selectedStage !== "sent_exam") return "";
+  const id = c.application_id;
+  const tag = `<span class="ai-tag">🧪 AI résumé summary</span>`;
+  // Auto-generation in progress (or about to start): show a loading state.
+  if(!c.ai_summary && !c._summaryError && c.resume_downloaded)
+    return `<div class="ai-summary pending"><div class="ai-head">${tag}</div><p>⚗️ Transmuting résumé into a summary…</p></div>`;
+  const err = c._summaryError
+    ? `<p class="ai-err">⚠ ${esc(c._summaryError)} You can write one manually below.</p>` : "";
+  const regen = c.resume_downloaded
+    ? `<button class="btn tiny secondary" onclick="regenerateSummary('${esc(id)}', this)">↻ Regenerate</button>` : "";
+  return `<div class="ai-summary">
+    <div class="ai-head">${tag}
+      <span class="ai-btns">${regen}
+        <button class="btn tiny secondary" onclick="saveSummary('${esc(id)}', this)">💾 Save</button></span></div>
+    ${err}
+    <textarea class="ai-edit" data-id="${esc(id)}" rows="4"
+      placeholder="Write a short summary of this candidate's skills &amp; experience…">${esc(c.ai_summary||"")}</textarea>
+  </div>`;
+}
+
+// Replace just one card's summary block (so it doesn't clobber edits in progress
+// on other cards when an async generation finishes).
+function refreshSummaryCard(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const card = document.querySelector(`.cand-card[data-id="${CSS.escape(id)}"]`);
+  const holder = card && card.querySelector(".ai-summary");
+  if(holder) holder.outerHTML = summaryBlock(c);
+}
+
+// Save the (possibly edited) summary text to the database.
+async function saveSummary(id, btn){
+  const ta = btn.closest(".ai-summary").querySelector(".ai-edit");
+  const text = ta.value.trim();
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const r = await (await fetch("/api/candidates/summary/save", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, summary:text})})).json();
+    if(!r.ok) throw new Error(r.error||"save failed");
+    const c = candidates.find(x => x.application_id===id);
+    if(c){ c.ai_summary = text; c._summaryError = null; }
+    ta.classList.add("saved"); setTimeout(()=>ta.classList.remove("saved"), 1200);
+    toast("Summary saved.", 2000);
+  } catch(e){ toast("Could not save summary: "+e.message, 6000); }
+  finally { btn.disabled = false; btn.textContent = label; }
+}
+window.saveSummary = saveSummary;
+
+// Force ChatGPT to regenerate the summary (overwrites the stored one).
+async function regenerateSummary(id, btn){
+  const ta = btn.closest(".ai-summary").querySelector(".ai-edit");
+  const label = btn.textContent; btn.disabled = true; btn.textContent = "Regenerating…";
+  if(ta) ta.disabled = true;
+  try {
+    const r = await (await fetch("/api/candidates/summary", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, force:true})})).json();
+    if(!r.ok) throw new Error(r.error||"regenerate failed");
+    const c = candidates.find(x => x.application_id===id);
+    if(c){ c.ai_summary = r.summary; c._summaryError = null; }
+    refreshSummaryCard(id);   // rebuilds the block with the new text
+    toast("Summary regenerated.", 2500);
+  } catch(e){
+    toast("Could not regenerate: "+e.message, 6000);
+    if(ta) ta.disabled = false; btn.disabled = false; btn.textContent = label;
+  }
+}
+window.regenerateSummary = regenerateSummary;
+
+// Generate (and cache) the summary for one candidate; refresh its card when it lands.
+async function fetchSummary(id){
+  const c = candidates.find(x => x.application_id===id);
+  if(!c || c.ai_summary || !c.resume_downloaded || summaryInFlight.has(id)) return;
+  summaryInFlight.add(id);
+  try {
+    const r = await (await fetch("/api/candidates/summary", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id})})).json();
+    if(r.ok){ c.ai_summary = r.summary; c._summaryError = null; }
+    else { c._summaryError = r.error || "Could not summarise."; }
+  } catch(e){ c._summaryError = "Summary request failed."; }
+  finally {
+    summaryInFlight.delete(id);
+    if(selectedStage==="sent_exam") refreshSummaryCard(id);
+  }
+}
+
+// Kick off summaries for any Sent-Exam card that doesn't have one yet.
+function ensureSummaries(){
+  if(selectedStage !== "sent_exam") return;
+  filtered().forEach(c => {
+    if(!c.ai_summary && !c._summaryError && c.resume_downloaded) fetchSummary(c.application_id);
+  });
+}
+
+function moveBtn(id, tk, curr){
+  const label = STAGE_LABEL[tk];
+  if(tk==="not_interest") return `<button class="btn tiny secondary" onclick="requestMove('${esc(id)}','not_interest')">✕ ${label}</button>`;
+  // Backward targets (incl. the Pending off-ramp return) get a back-arrow + ghost style.
+  if(tk==="prescreen" || isBackward(curr, tk))
+    return `<button class="btn tiny secondary" onclick="requestMove('${esc(id)}','${tk}')">← ${label}</button>`;
+  return `<button class="btn tiny" onclick="requestMove('${esc(id)}','${tk}')">${label} →</button>`;
+}
+
+function renderCards(){
+  const box = $("#cards");
+  const list = filtered();
+  const targets = allowedTargets(selectedStage);
+  const targetLabels = targets.map(k => STAGE_LABEL[k]).join(" / ");
+  let html = `<p class="drag-hint">📋 <b>${STAGE_LABEL[selectedStage]}</b> — ${list.length} candidate${list.length!==1?"s":""}.` +
+    (targets.length ? ` Drag a card onto <b>${esc(targetLabels)}</b> (or use the buttons).` : ` Final stage.`) + `</p>`;
+  if(!list.length){ box.innerHTML = html + `<div class="empty-state">No candidates in this stage.</div>`; return; }
+  // Multi-select toolbar — Sent Exam stage only.
+  if(selectedStage==="sent_exam"){
+    html += `<div class="bulk-bar">
+      <label class="bulk-all"><input type="checkbox" id="selAll" onchange="toggleSelectAll(this.checked)"> Select all</label>
+      <span id="selCount" class="sel-count">0 selected</span>
+      <button class="btn tiny secondary" onclick="recheckReplies()">↻ Check replies</button>
+      <button class="btn tiny" id="bulkMove" disabled onclick="bulkMoveToShortlist()">Move selected to Shortlist →</button>
+    </div>`;
+  } else if(REPLY_STAGES.has(selectedStage)){
+    html += `<div class="reply-bar"><button class="btn tiny secondary" onclick="recheckReplies()">↻ Check replies</button></div>`;
+  }
+  html += list.map(c => {
+    const id = c.application_id, name = c.full_name_edit || c.full_name_jobdb || "?";
+    const nick = c.nickname ? ` <span style="color:var(--ink-soft);font-weight:600">(${esc(c.nickname)})</span>` : "";
+    return `<div class="cand-card${selectedStage==="sent_exam"?" selectable":""}" draggable="false" data-id="${esc(id)}">
+      ${selectedStage==="sent_exam" ? `<label class="sel-check" title="Select"><input type="checkbox" class="cand-select" data-id="${esc(id)}" ${selectedIds.has(id)?"checked":""}></label>` : ""}
+      <div class="cand-avatar">${esc(name[0]||"?")}</div>
+      <div class="cand-body">
+        <p class="cand-name">
+          <select class="edit cd-edit cd-title" data-f="name_title" title="Title">${titleOpts(c.name_title)}</select>
+          <input class="edit cd-edit cd-name" data-f="full_name_edit" value="${esc(c.full_name_edit)}" placeholder="name">
+          <input class="edit cd-edit cd-email" data-f="email" value="${esc(c.email)}" placeholder="no email"></p>
+        <div class="cand-sub2"><span class="drag-handle" title="Drag to move">⠿</span>
+          <div class="scraped cd-jobdb">JobDB: ${esc(c.full_name_jobdb)||"—"}${nick}</div>
+          <input class="edit cd-edit cd-phone" data-f="phone" value="${esc(fmtPhone(c.phone))}" placeholder="phone">
+        </div>
+        <div class="cand-tags">
+          ${c.expect_salary?`<span class="pill wait">💰 ฿${esc(c.expect_salary)}</span>`:""}
+          ${examPill(c)}
+          ${replyPill(c)}
+          ${c.resume_downloaded?`<span class="pill yes">✔ Resume</span>`:`<span class="pill no">✘ Resume</span>`}
+          ${c.cv_sent?`<span class="pill yes">✔ CV</span>`:""}
+          ${c.interview_date?`<span class="pill wait">📅 ${esc(c.interview_date)}</span>`:""}
+          ${c.evaluation_date?`<span class="pill wait">📝 ${esc(c.evaluation_date)}</span>`:""}
+          ${c.offer_date?`<span class="pill yes">🎉 ${esc(c.offer_date)}</span>`:""}
+        </div>
+        ${summaryBlock(c)}
+      </div>
+      <div class="cand-actions">
+        ${c.resume_downloaded?`<button class="btn tiny secondary" onclick="openResume('${esc(id)}', this.closest('.cand-card').querySelector('.cd-edit[data-f=full_name_edit]').value)">📄 Resume</button>`:`<button class="btn tiny secondary" disabled title="No resume on file">📄 No resume</button>`}
+        ${allowedTargets(c.stage||"prescreen").map(tk => moveBtn(id, tk, c.stage||"prescreen")).join("")}
+      </div>
+    </div>`;
+  }).join("");
+  box.innerHTML = html;
+  box.querySelectorAll(".cand-card").forEach(card => {
+    const id = card.dataset.id;
+    // Cards are NOT draggable by default so their text can be selected/copied.
+    // Dragging starts only when you grab the ⠿ handle.
+    const handle = card.querySelector(".drag-handle");
+    if(handle) handle.addEventListener("mousedown", () => { card.draggable = true; });
+    card.addEventListener("dragstart", e => { draggedId=id; e.dataTransfer.effectAllowed="move";
+      card.classList.add("dragging"); markTargets(true); });
+    card.addEventListener("dragend", () => { card.classList.remove("dragging"); draggedId=null;
+      markTargets(false); card.draggable = false; });
+    card.querySelectorAll(".cd-edit").forEach(inp => inp.addEventListener("change", saveField));
+  });
+  box.querySelectorAll(".cand-select").forEach(cb =>
+    cb.addEventListener("change", e => toggleSelect(e.target.dataset.id, e.target.checked)));
+  updateBulkBar();     // sync the toolbar count / select-all state with selectedIds
+  ensureSummaries();   // lazily generate AI summaries for Sent-Exam cards on view
+  ensureReplies();     // lazily check mailbox replies for sent_exam+ cards on view
+}
+
+function markTargets(active){
+  const targets = allowedTargets(selectedStage);
+  document.querySelectorAll("#stageMenu .stage-item").forEach(li => {
+    li.classList.remove("drop-ok","drop-no");
+    if(!active) return;
+    if(targets.includes(li.dataset.key)) li.classList.add("drop-ok");
+    else if(li.dataset.key!==selectedStage) li.classList.add("drop-no");
+  });
+}
+
+function selectStage(k){ selectedStage=k; selectedIds.clear(); render(); }
+window.selectStage = selectStage;
+function updateSortButtons(){
+  const a = $("#sortAsc"), d = $("#sortDesc");
+  if(a) a.classList.toggle("active", sortMode==="salary_asc");
+  if(d) d.classList.toggle("active", sortMode==="salary_desc");
+}
+function render(){ updateSortButtons(); renderMenu(); renderCards(); }
+window.render = render;
+
+// Safety: if the ⠿ handle was pressed but no drag began (a plain click), restore
+// the card to non-draggable so its text stays selectable.
+document.addEventListener("mouseup", () => {
+  document.querySelectorAll(".cand-card[draggable='true']").forEach(c => c.draggable = false);
+});
+
+load();
+</script>
+<script src="{{ url_for('static', filename='fantasy.js') }}"></script>
+</body>
+</html>

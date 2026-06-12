@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
+  <defs>
+    <linearGradient id="psteel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"   stop-color="#ffffff"/>
+      <stop offset=".35" stop-color="#cfd6dd"/>
+      <stop offset=".6"  stop-color="#a3acb5"/>
+      <stop offset="1"   stop-color="#626a73"/>
+    </linearGradient>
+    <radialGradient id="pcore" cx=".5" cy=".5" r=".5">
+      <stop offset="0"  stop-color="#ff8079"/>
+      <stop offset=".5" stop-color="#e35b54"/>
+      <stop offset="1"  stop-color="#8e1b1b"/>
+    </radialGradient>
+  </defs>
+  <!-- brighter active glow -->
+  <circle cx="22" cy="24" r="15" fill="#e35b54" opacity=".28"/>
+  <circle cx="14" cy="9"  r="6"  fill="#ff6b62" opacity=".30"/>
+  <g stroke="#3a4047" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+    <!-- extended pointing index finger (tip = hotspot ~13,2) -->
+    <path d="M13 3 L17 5 L17 16 L11 16 L11 6 Z" fill="url(#psteel)"/>
+    <line x1="11" y1="9"  x2="17" y2="9"  stroke="#5b636c" stroke-width=".7"/>
+    <line x1="11" y1="12" x2="17" y2="12" stroke="#5b636c" stroke-width=".7"/>
+    <!-- curled fingers / gauntlet fist -->
+    <path d="M11 15 L26 14 L31 19 L31 30
+             Q31 36 24 37 L17 37
+             Q10 37 10 30 L10.5 19 Z" fill="url(#psteel)"/>
+    <path d="M17 14 L22 13 L23 19 L18 19 Z" fill="url(#psteel)"/>
+    <path d="M22 13 L26 14 L27 20 L23 19 Z" fill="url(#psteel)"/>
+    <line x1="13" y1="24" x2="30" y2="24" stroke="#5b636c" stroke-width=".8"/>
+    <line x1="14" y1="30" x2="29" y2="30" stroke="#5b636c" stroke-width=".8"/>
+    <!-- thumb -->
+    <path d="M11 17 L7 22 L10 28 L13 23 Z" fill="url(#psteel)"/>
+  </g>
+  <!-- glowing alchemic core rivet -->
+  <circle cx="21" cy="26" r="3.4" fill="url(#pcore)" stroke="#3a4047" stroke-width=".8"/>
+  <circle cx="21" cy="26" r="1.2" fill="#ffe0dc"/>
+</svg>

@@ -1,0 +1,8 @@
+# Minimum versions; pip resolves the latest wheels compatible with your Python.
+playwright>=1.49
+pyodbc>=5.1
+python-dotenv>=1.0
+pypdf>=5.0
+flask>=3.0
+msal>=1.28
+requests>=2.31
