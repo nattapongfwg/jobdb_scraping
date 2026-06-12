@@ -54,6 +54,37 @@ def _extract_text(pdf_path: Path, max_chars: int = 16000) -> str:
     return "\n".join(parts).strip()[:max_chars]
 
 
+def _require_credentials() -> tuple[str, str]:
+    """Read (api_key, model) from .env. Raises SummaryError if no key is set."""
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise SummaryError("OPENAI_API_KEY is not set in .env.")
+    model = os.getenv("OPENAI_MODEL", "").strip() or DEFAULT_MODEL
+    return api_key, model
+
+
+def _message_from(resp: requests.Response, empty_label: str) -> str:
+    """Pull the assistant message text out of a chat-completions response, trimming
+    surrounding quotes. Raises SummaryError on an API error, an unexpected response
+    shape, or empty output. `empty_label` names the thing for the empty-output error
+    (e.g. 'summary', 'experience summary')."""
+    if resp.status_code != 200:
+        detail = resp.text[:300]
+        try:
+            detail = resp.json().get("error", {}).get("message", detail)
+        except ValueError:
+            pass
+        raise SummaryError(f"OpenAI API error ({resp.status_code}): {detail}")
+    try:
+        text = resp.json()["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError, ValueError) as exc:
+        raise SummaryError(f"Unexpected OpenAI response: {exc}") from exc
+    text = text.strip().strip('"').strip()
+    if not text:
+        raise SummaryError(f"OpenAI returned an empty {empty_label}.")
+    return text
+
+
 def _chat(api_key: str, model: str, messages: list[dict]) -> requests.Response:
     """POST to the chat completions endpoint, adapting to model-specific param
     rules. Newer models (e.g. GPT-5 / reasoning tiers) reject `max_tokens` (want
@@ -95,10 +126,7 @@ def summarize_resume(resume_path: str, candidate_name: str = "",
     Raises SummaryError on any failure (missing key, unreadable PDF, empty text,
     or an OpenAI API error) so the caller can surface a clean message.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise SummaryError("OPENAI_API_KEY is not set in .env.")
-    model = os.getenv("OPENAI_MODEL", "").strip() or DEFAULT_MODEL
+    api_key, model = _require_credentials()
 
     p = Path(resume_path)
     if not p.is_absolute():
@@ -137,24 +165,7 @@ def summarize_resume(resume_path: str, candidate_name: str = "",
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ])
-
-    if resp.status_code != 200:
-        detail = resp.text[:300]
-        try:
-            detail = resp.json().get("error", {}).get("message", detail)
-        except ValueError:
-            pass
-        raise SummaryError(f"OpenAI API error ({resp.status_code}): {detail}")
-
-    try:
-        summary = resp.json()["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, ValueError) as exc:
-        raise SummaryError(f"Unexpected OpenAI response: {exc}") from exc
-
-    summary = summary.strip().strip('"').strip()
-    if not summary:
-        raise SummaryError("OpenAI returned an empty summary.")
-    return summary
+    return _message_from(resp, "summary")
 
 
 def summarize_experience(*, ai_summary: str = "", resume_path: str = "",
@@ -165,10 +176,7 @@ def summarize_experience(*, ai_summary: str = "", resume_path: str = "",
 
     Raises SummaryError on any failure so the caller can surface a clean message.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        raise SummaryError("OPENAI_API_KEY is not set in .env.")
-    model = os.getenv("OPENAI_MODEL", "").strip() or DEFAULT_MODEL
+    api_key, model = _require_credentials()
 
     source = (ai_summary or "").strip()
     origin = "candidate summary"
@@ -210,18 +218,4 @@ def summarize_experience(*, ai_summary: str = "", resume_path: str = "",
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ])
-    if resp.status_code != 200:
-        detail = resp.text[:300]
-        try:
-            detail = resp.json().get("error", {}).get("message", detail)
-        except ValueError:
-            pass
-        raise SummaryError(f"OpenAI API error ({resp.status_code}): {detail}")
-    try:
-        out = resp.json()["choices"][0]["message"]["content"].strip()
-    except (KeyError, IndexError, ValueError) as exc:
-        raise SummaryError(f"Unexpected OpenAI response: {exc}") from exc
-    out = out.strip().strip('"').strip()
-    if not out:
-        raise SummaryError("OpenAI returned an empty experience summary.")
-    return out
+    return _message_from(resp, "experience summary")
