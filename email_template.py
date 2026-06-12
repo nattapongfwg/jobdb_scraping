@@ -108,6 +108,13 @@ def _esc(s: str) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+def _fill(text: str, fields: dict) -> str:
+    """Replace every {placeholder} in `text` with its value from `fields`."""
+    for key, val in fields.items():
+        text = text.replace("{" + key + "}", val)
+    return text
+
+
 # Interview calendar-event body (HTML). Placeholders: {firstname} (first word of the
 # candidate's name), {title} (Mr./Ms./Mrs.), {job_title}. <TEAM> and the Date & Time
 # line are left as literal text for HR to fill in Outlook.
@@ -238,13 +245,7 @@ def render(template: dict, *, full_name_edit: str, job_title: str,
         "company": template.get("company", ""),
         "deadline": deadline or "",
     }
-
-    def _fill(text: str) -> str:
-        for key, val in fields.items():
-            text = text.replace("{" + key + "}", val)
-        return text
-
-    return _fill(template.get("subject", "")), _fill(template.get("body", ""))
+    return _fill(template.get("subject", ""), fields), _fill(template.get("body", ""), fields)
 
 
 def render_interview(template: dict, *, full_name_edit: str,
@@ -264,11 +265,6 @@ def render_interview(template: dict, *, full_name_edit: str,
     subj_fields = {"full_name_edit": name, "firstname": first,
                    "title": title, "title_name": title_name,
                    "job_title": job_title or "", "company": template.get("company", "")}
-
-    def _fill(text: str, fields: dict) -> str:
-        for key, val in fields.items():
-            text = text.replace("{" + key + "}", val)
-        return text
 
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
@@ -325,11 +321,6 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
     # Subject is always plain text (never HTML-escaped / no markup).
     subj_fields = {"job_title": job_title or "", "company": template.get("company", ""),
                    "candidates": "", "link_document": link_text or link_url or ""}
-
-    def _fill(text: str, fields: dict) -> str:
-        for key, val in fields.items():
-            text = text.replace("{" + key + "}", val)
-        return text
 
     subject = _fill(template.get("subject", ""), subj_fields)
     raw_body = template.get("body", "")
