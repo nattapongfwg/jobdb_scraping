@@ -158,8 +158,10 @@ def load_config() -> Config:
     resume_env = os.getenv("RESUME_DIR", "").strip()
     resume_dir = Path(resume_env).resolve() if resume_env else (PROJECT_ROOT / "resume")
     # OneDrive base where the app stores candidate folders (synced, shareable).
-    onedrive_base = (r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
-                     r"freewillsolutions.com\Candidate_JobDB_Scraping")
+    # Override per-machine via ONEDRIVE_BASE in .env (the default is one user's path).
+    onedrive_base = (os.getenv("ONEDRIVE_BASE", "").strip()
+                     or r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
+                        r"freewillsolutions.com\Candidate_JobDB_Scraping")
     # Shortlist resume folders go in OneDrive (so the folder gets a shareable link).
     shortlist_env = os.getenv("SHORTLIST_DIR", "").strip()
     shortlist_dir = Path(shortlist_env) if shortlist_env else Path(onedrive_base) / "Shortlists"
