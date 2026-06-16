@@ -6,6 +6,8 @@ DRAFT for HR to review and send. No data is persisted — the draft is the artif
 """
 from __future__ import annotations
 
+from signature import RECRUITER_FIRSTNAME, signature_html
+
 # Type dropdown value (Thai) -> the New/Replace label shown in the email.
 NEW_LABELS = {"รับใหม่": "New", "ทดแทน": "Replace"}
 
@@ -108,22 +110,11 @@ Interviewer : {e(interviewer)}<br>
 {ic_html}
 </p>
 <p style="margin:0 0 14px">
-ความเห็นฝ่าย Recruit : Nattapong<br>
+ความเห็นฝ่าย Recruit : {RECRUITER_FIRSTNAME}<br>
 {rec_html}
 </p>
 {rule}
 <p style="margin:0 0 14px">ช่องทางการสรรหา (Sourcing): JOB DB</p>
-<p style="margin:18px 0 0">
-<b>Best regard,</b><br>
-<b>Nattapong Yuwasirinun (นะ)</b><br>
-<b>Mobile</b> 064-615-2113<b>,</b> <b>Tel.</b> 0-2034-4147<br>
-<b>E-mail: nattapong_yuw@freewillsolutions.com</b>
-</p>
-<p style="margin:18px 0 0">
-Human Resources Department<br>
-<b>Freewill Solutions Company Limited</b><br>
-1168/86-88&nbsp; Lumpini Tower, 29th Floor,<br>
-Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
-</p>
+{signature_html()}
 </div>"""
     return subject, body

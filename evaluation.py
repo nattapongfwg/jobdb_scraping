@@ -23,6 +23,8 @@ import re
 import zipfile
 from pathlib import Path
 
+from signature import signature_html
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 EVAL_DIR = PROJECT_ROOT / "Evaluation_Files"          # generated forms land here (safe to clean)
 # The template build fills is `Evaluation_Template.xlsx` — derived from the HR master
@@ -128,18 +130,7 @@ def build_eval_email(*, prefix_name: str, interviewer: str, position: str,
 <p style="margin:0 0 14px"><b>Note:</b> If you have any questions, feel free to ask me anytime. I'm always available for you Krab.</p>
 <p style="margin:0 0 2px">User Manual for Interview Evaluation form):</p>
 <p style="margin:0 0 18px">📄 <a href="{_html_escape(MANUAL_URL)}" style="color:#1155cc;text-decoration:underline">{_html_escape(MANUAL_LINK_TEXT)}</a></p>
-<p style="margin:18px 0 0">
-<b>Best regard,</b><br>
-<b>Nattapong Yuwasirinun (นะ)</b><br>
-<b>Mobile</b> 064-615-2113<b>,</b> <b>Tel.</b> 0-2034-4147<br>
-<b>E-mail: nattapong_yuw@freewillsolutions.com</b>
-</p>
-<p style="margin:18px 0 0">
-Human Resources Department<br>
-<b>Freewill Solutions Company Limited</b><br>
-1168/86-88&nbsp; Lumpini Tower, 29th Floor,<br>
-Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
-</p>
+{signature_html()}
 </div>"""
     return subject, body
 

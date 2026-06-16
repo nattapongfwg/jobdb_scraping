@@ -21,6 +21,8 @@ import re
 import uuid
 from pathlib import Path
 
+from signature import signature_html, signature_text
+
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 
 DEFAULT_BODY = """Dear {title_name},
@@ -47,15 +49,7 @@ To-do list before interview
 
 Deadline: {deadline}
 
-Best regard,
-Nattapong Yuwasirinun (นะ)
-Mobile 064-615-2113, Tel. 0-2034-4147
-E-mail: nattapong_yuw@freewillsolutions.com
-
-Human Resources Department
-Freewill Solutions Company Limited
-1168/86-88  Lumpini Tower, 29th Floor,
-Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120"""
+""" + signature_text()
 
 # Per-template fields and their defaults (id + name handled separately).
 DEFAULT_FIELDS: dict = {
@@ -77,18 +71,7 @@ DEFAULT_SHORTLIST_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,san
 <p style="margin:0 0 20px"><b>Please see candidate for {job_title} at the attached link</b></p>
 {candidates}
 <p style="margin:14px 0 0"><b>Link document:</b> {link_document}</p>
-<p style="margin:26px 0 0">
-<b>Best regard,</b><br>
-<b>Nattapong Yuwasirinun (นะ)</b><br>
-<b>Mobile</b> 064-615-2113<b>,</b> <b>Tel.</b> 0-2034-4147<br>
-<b>E-mail: nattapong_yuw@freewillsolutions.com</b>
-</p>
-<p style="margin:18px 0 0">
-Human Resources Department<br>
-<b>Freewill Solutions Company Limited</b><br>
-1168/86-88&nbsp; Lumpini Tower, 29th Floor,<br>
-Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
-</p>
+""" + signature_html(top_margin=26) + """
 </div>"""
 
 DEFAULT_SHORTLIST_FIELDS: dict = {
