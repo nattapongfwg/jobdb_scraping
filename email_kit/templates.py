@@ -21,7 +21,7 @@ import re
 import uuid
 from pathlib import Path
 
-from signature import signature_html, signature_text
+from .signature import signature_html, signature_text
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 

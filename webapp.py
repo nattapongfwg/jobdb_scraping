@@ -21,8 +21,8 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 from config import load_config
 from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
                 ensure_schema)
-from email_template import (delete_template, get_template, load_templates,
-                            render, render_group, render_interview, save_template)
+from email_kit.templates import (delete_template, get_template, load_templates,
+                                 render, render_group, render_interview, save_template)
 import shortlist
 import evaluation
 import offer

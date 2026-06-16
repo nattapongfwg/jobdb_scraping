@@ -6,7 +6,7 @@ DRAFT for HR to review and send. No data is persisted — the draft is the artif
 """
 from __future__ import annotations
 
-from signature import RECRUITER_FIRSTNAME, signature_html
+from email_kit.signature import RECRUITER_FIRSTNAME, signature_html
 
 # Type dropdown value (Thai) -> the New/Replace label shown in the email.
 NEW_LABELS = {"รับใหม่": "New", "ทดแทน": "Replace"}

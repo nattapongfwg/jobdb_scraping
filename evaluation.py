@@ -23,7 +23,7 @@ import re
 import zipfile
 from pathlib import Path
 
-from signature import signature_html
+from email_kit.signature import signature_html
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 EVAL_DIR = PROJECT_ROOT / "Evaluation_Files"          # generated forms land here (safe to clean)
