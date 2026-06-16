@@ -111,7 +111,7 @@ These are excluded from the repo; copy them from the old computer if you want th
 |------|---------------------|------------|
 | `.env` | Holds all secrets | Copy it over, or refill from `.env.example` |
 | `.graph_token_cache.json` | Outlook sign-in token | Copy it, **or** just click "Sign in to email" once in the UI |
-| `email_template.json` | Your customised email templates | Copy it (otherwise sensible defaults regenerate automatically) |
+| `email_kit/email_template.json` | Your customised email templates | Copy it (otherwise sensible defaults regenerate automatically) |
 | `resume/`, `Email_Reply_Exam/`, `Shortlists/` | Already-scraped candidate files | Copy if you want history; otherwise re-scrape |
 | SQL Server data | The candidate database itself | Re-scrape on the new machine, **or** back up / restore the DB in SSMS |
 
