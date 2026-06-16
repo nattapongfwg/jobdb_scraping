@@ -205,6 +205,12 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/email-templates")
+def email_templates_page():
+    """Config Email Template page — manage the per-stage email templates."""
+    return render_template("email_templates.html")
+
+
 @app.route("/job/<job_id>")
 def job_pipeline(job_id: str):
     """Candidate pipeline board for one job posting."""
@@ -461,6 +467,27 @@ def api_email_templates_get():
     return jsonify({"templates": load_templates()})
 
 
+@app.get("/api/email-templates/fields")
+def api_email_template_fields():
+    """Placeholder fields HR can insert into a template: every applicants column
+    (read live from the DB, so new columns appear automatically) plus the derived
+    name/company/deadline fields. Powers the insert-field chips."""
+    derived = ["full_name_edit", "title", "title_name", "firstname",
+               "job_title", "company", "deadline"]
+    cols: list[str] = []
+    try:
+        with Database(cfg) as db:
+            cols = db.list_applicant_fields()
+    except Exception as exc:  # noqa: BLE001 — chips are best-effort; never 500 the modal
+        logging.warning("Could not list applicant fields: %s", exc)
+    fields, seen = list(derived), set(derived)
+    for c in cols:
+        if c not in seen:
+            seen.add(c)
+            fields.append(c)
+    return jsonify({"fields": fields})
+
+
 @app.post("/api/email-templates")
 def api_email_template_save():
     data = request.get_json(force=True)
@@ -526,11 +553,7 @@ def api_candidate_send_exam():
         if tmpl is None:
             return jsonify({"ok": False, "error": "No email template configured."}), 400
         subject, body = render(
-            tmpl,
-            full_name_edit=cand.get("full_name_edit") or cand.get("full_name_jobdb") or "",
-            job_title=cand.get("job_title") or "",
-            deadline=deadline,
-            name_title=cand.get("name_title") or "")
+            tmpl, cand=db.get_candidate_fields(aid) or cand, deadline=deadline)
         try:
             GraphMailer(cfg).send(cand["email"], subject, body,
                                   attachment_paths=tmpl.get("attachments", []),
@@ -566,7 +589,7 @@ def api_candidate_interview_event():
     if not aid:
         return jsonify({"ok": False, "error": "application_id required"}), 400
     with Database(cfg) as db:
-        cand = db.get_candidate(aid)
+        cand = db.get_candidate_fields(aid)
     if not cand:
         return jsonify({"ok": False, "error": "Candidate not found."}), 404
 
@@ -577,11 +600,7 @@ def api_candidate_interview_event():
     if tmpl is None:
         return jsonify({"ok": False, "error": "No interview template configured."}), 400
 
-    subject, body = render_interview(
-        tmpl,
-        full_name_edit=cand.get("full_name_edit") or cand.get("full_name_jobdb") or "",
-        job_title=cand.get("job_title") or "",
-        name_title=cand.get("name_title") or "")
+    subject, body = render_interview(tmpl, cand=cand)
     # Placeholder slot (HR edits it): tomorrow 14:00–15:00, Thailand local time.
     day = (datetime.now() + timedelta(days=1)).date()
     start = f"{day}T14:00:00"
@@ -748,7 +767,12 @@ def api_candidate_offer():
         except MailerError as exc:
             logging.warning("offer: shortlist link lookup failed: %s", exc)
 
+        offer_tmpl = next((t for t in load_templates() if t.get("type") == "offer"), None)
+        if offer_tmpl is None:
+            return jsonify({"ok": False, "error": "No offer email template configured."}), 400
+
         subject, body = offer.build_offer_email(
+            template=offer_tmpl,
             prefix_name=prefix_name, position=position, job_level=job_level, role=role,
             department=info.get("department") or "", section=info.get("section") or "",
             people_count=_g("people_count") or "1", offer_type=_g("offer_type") or "รับใหม่",
@@ -762,7 +786,7 @@ def api_candidate_offer():
             link_text=prefix_name or name_edit, link_url=link_url,
             today_str=datetime.now().strftime("%d %b %Y"))
         try:
-            mailer.create_draft(subject, body, is_html=True)
+            mailer.create_draft(subject, body, is_html=bool(offer_tmpl.get("is_html", True)))
         except MailerError as exc:
             return jsonify({"ok": False, "error": f"Draft email failed: {exc}"}), 400
 

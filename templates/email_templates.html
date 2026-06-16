@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Config Email Template — Recruit Alchemists</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<style>
+  /* ---- Config Email Template page layout ---- */
+  .et-wrap { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 920px){ .et-wrap { grid-template-columns: 1fr; } }
+
+  .et-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+              padding: 18px; box-shadow: var(--shadow); }
+
+  /* sidebar list of templates */
+  .et-side h3 { margin: 0 0 12px; font-size: 15px; color: var(--ink); }
+  .tmpl-card { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+               padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px;
+               background: var(--bg-2); margin-bottom: 9px; cursor: pointer; transition: .15s; }
+  .tmpl-card:hover { border-color: var(--gold-2); background: var(--panel-2); }
+  .tmpl-card.active { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue), 0 0 14px var(--glow); }
+  .tmpl-card .tc-name { font-size: 13.5px; color: var(--ink); font-weight: 600; line-height: 1.3; }
+  .badge { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
+           padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .badge.exam      { color: var(--blue-soft); background: rgba(193,39,45,.16); }
+  .badge.shortlist { color: var(--gold-soft); background: rgba(212,175,55,.16); }
+  .badge.interview { color: var(--green);     background: var(--green-bg); }
+  .badge.offer     { color: var(--amber);     background: var(--amber-bg); }
+
+  /* editor form */
+  .et-editor label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
+  .et-editor input[type=text], .et-editor input[type=time], .et-editor input:not([type]),
+  .et-editor select, .et-editor textarea {
+    width: 100%; box-sizing: border-box; background: var(--bg-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; font-size: 13.5px; }
+  .et-editor textarea { resize: vertical; line-height: 1.5; font-family: ui-monospace, "Cascadia Code", Menlo, monospace; }
+  .et-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 620px){ .et-grid { grid-template-columns: 1fr; } }
+  .et-grid label.chk { display: flex; align-items: center; gap: 8px; align-self: end; padding-bottom: 9px; }
+  .et-grid label.chk input { width: auto; }
+  .et-section { border-top: 1px solid var(--line-soft); margin-top: 20px; padding-top: 18px; }
+  .et-section > .sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .et-section .sec-head b { font-size: 13.5px; color: var(--ink); }
+  .hint { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: 0 0 12px; }
+  .hint code { background: var(--panel-2); padding: 1px 6px; border-radius: 6px; font-size: 11.5px; color: var(--gold-soft); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 132px; overflow-y: auto;
+           padding: 4px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--bg-2); }
+
+  /* body + live preview side by side */
+  .body-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 1000px){ .body-grid { grid-template-columns: 1fr; } }
+  .body-grid textarea { min-height: 360px; }
+  .preview-frame { width: 100%; height: 380px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+
+  .auth-box { background: var(--bg-2); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; margin-bottom: 18px; }
+  .auth-box a { color: var(--blue-soft); }
+  .et-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;
+                border-top: 1px solid var(--line-soft); padding-top: 18px; }
+  .et-actions .spacer { margin-right: auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <nav>
+    <a href="/">Alchemists Postings</a>
+    <a href="/tracking">Status Tracking</a>
+    <a href="/email-templates" class="active">Email Templates</a>
+  </nav>
+</div>
+
+<div class="container full">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Config <span class="accent">Email Template</span></h1>
+      <p class="page-sub">Manage the emails sent at each pipeline stage — exam, shortlist, interview, and job offer.</p>
+    </div>
+    <a class="btn secondary" href="/">← Back to Postings</a>
+  </div>
+
+  <!-- Sign-in status -->
+  <div class="auth-box" id="emailAuthBox">
+    <div id="emailAuthStatus" class="muted" style="font-size:13px">Checking sign-in…</div>
+    <button class="btn secondary" id="emailSignInBtn" onclick="startEmailLogin()"
+            style="display:none;margin-top:8px">🔑 Sign in to email</button>
+    <div id="emailAuthCode" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
+      1. Open <a id="emailAuthUri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
+      2. Enter code: <b id="emailAuthUserCode" style="font-size:16px;letter-spacing:1px"></b><br>
+      3. Sign in as your sender mailbox — <span class="muted" id="emailAuthWait">waiting for you to finish…</span>
+    </div>
+  </div>
+
+  <div class="et-wrap">
+    <!-- LEFT: template list -->
+    <aside class="et-panel et-side">
+      <h3>Templates</h3>
+      <div id="tmplList"><div class="muted" style="font-size:13px">Loading…</div></div>
+      <button class="btn ghost" style="width:100%;margin-top:6px" onclick="newTemplate()">➕ New template</button>
+    </aside>
+
+    <!-- RIGHT: editor -->
+    <section class="et-panel et-editor">
+      <p class="hint" id="cfgHint"></p>
+
+      <div class="et-grid">
+        <label>Template name<input id="cfgName" placeholder="e.g. Implementer Interview" oninput="updatePreview()"></label>
+        <label>Type
+          <select id="cfgType" onchange="onTypeChange()">
+            <option value="exam">Exam — to the candidate</option>
+            <option value="shortlist">Shortlist — group draft to your team</option>
+            <option value="interview">Interview — Outlook calendar event</option>
+            <option value="offer">Offer — job-offer confirmation draft</option>
+          </select>
+        </label>
+        <label>Company<input id="cfgCompany" oninput="updatePreview()"></label>
+        <label>Default deadline time<input id="cfgDeadlineTime" type="time"></label>
+        <label class="chk"><input type="checkbox" id="cfgIsHtml" onchange="updatePreview()"> Send body as HTML</label>
+      </div>
+
+      <label style="margin-top:14px;display:block">Attachment file paths — one per line
+        <textarea id="cfgAttachments" rows="3" style="font-family:ui-monospace,monospace" placeholder="E:\jobdb_scraping\exam\INS-Imp.pdf&#10;E:\jobdb_scraping\exam\logic.pdf"></textarea>
+      </label>
+
+      <!-- Custom variables -->
+      <div class="et-section">
+        <div class="sec-head">
+          <b>Custom variables</b>
+          <span class="muted" style="font-size:12px">— your own reusable values; drop them in as <code>{name}</code></span>
+          <button type="button" class="btn ghost tiny" style="margin-left:auto" onclick="addCustomVar()">+ Add variable</button>
+        </div>
+        <div id="cfgCustomVars"></div>
+      </div>
+
+      <!-- Insert field -->
+      <div class="et-section">
+        <div class="sec-head"><b>Insert field</b>
+          <span class="muted" style="font-size:12px">into <b id="cfgInsertTarget">Body</b> — click a chip. Candidate columns load live from the database.</span>
+        </div>
+        <div id="cfgFieldChips" class="chips"></div>
+      </div>
+
+      <!-- Subject + Body with live preview -->
+      <div class="et-section">
+        <label style="margin-bottom:14px;display:block">Subject<input id="cfgSubject" onfocus="cfgFocus('cfgSubject')" oninput="updatePreview()"></label>
+        <div class="body-grid">
+          <label>Body
+            <textarea id="cfgBody" rows="18" onfocus="cfgFocus('cfgBody')" oninput="updatePreview()"></textarea>
+          </label>
+          <div>
+            <label style="margin-bottom:6px">Live preview <span class="muted" style="text-transform:none">(sample candidate data)</span></label>
+            <iframe id="cfgPreviewFrame" class="preview-frame" title="Email preview"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <div class="et-actions">
+        <button class="btn ghost" id="cfgDeleteBtn" style="color:var(--red)" onclick="deleteTemplate()">🗑 Delete</button>
+        <span class="spacer"></span>
+        <button class="btn" id="cfgSaveBtn" onclick="saveEmailCfg()">Save template</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
+
+/* ---------- state ---------- */
+let cfgTemplates = [], cfgCurrentId = null;
+let cfgFields = [], cfgLastField = "cfgBody";   // available DB fields + last-focused input
+const TYPE_LABEL = { exam:"Exam", shortlist:"Shortlist", interview:"Interview", offer:"Offer" };
+
+function fillTemplateFields(t){
+  t = t || {};
+  $("#cfgName").value = t.name||""; $("#cfgCompany").value = t.company||"";
+  $("#cfgType").value = ["shortlist","interview","offer"].includes(t.type) ? t.type : "exam";
+  $("#cfgAttachments").value = (t.attachments||[]).join("\n");
+  $("#cfgIsHtml").checked = !!t.is_html;
+  $("#cfgDeadlineTime").value = t.default_deadline_time||"23:59";
+  $("#cfgSubject").value = t.subject||""; $("#cfgBody").value = t.body||"";
+  renderCustomVars(t.custom_vars);
+  onTypeChange();
+}
+
+/* ---- template list (sidebar) ---- */
+function renderTemplateList(){
+  const box = $("#tmplList");
+  if(!cfgTemplates.length){ box.innerHTML = `<div class="muted" style="font-size:13px">No templates yet.</div>`; return; }
+  box.innerHTML = cfgTemplates.map(t => {
+    const ty = ["exam","shortlist","interview","offer"].includes(t.type) ? t.type : "exam";
+    return `<div class="tmpl-card ${t.id===cfgCurrentId?"active":""}" onclick="pickTemplate('${esc(t.id)}')">`
+      + `<span class="tc-name">${esc(t.name)||"(untitled)"}</span>`
+      + `<span class="badge ${ty}">${TYPE_LABEL[ty]}</span></div>`;
+  }).join("");
+}
+function pickTemplate(id){
+  cfgCurrentId = id;
+  fillTemplateFields(cfgTemplates.find(t => t.id === id));
+  renderTemplateList();
+  updatePreview();
+}
+function newTemplate(){
+  cfgCurrentId = null;                 // no id → save creates a new one
+  fillTemplateFields({name:"", type:"exam", company:"Freewill Solutions Co., Ltd.", default_deadline_time:"23:59"});
+  renderTemplateList();
+  updatePreview();
+  $("#cfgName").focus();
+}
+
+/* ---- custom variables: HR-defined {name} = value pairs on the template ---- */
+function customVarRow(name, value){
+  const row = document.createElement("div");
+  row.className = "cv-row";
+  row.style.cssText = "display:flex;gap:8px;margin-bottom:6px;align-items:center";
+  row.innerHTML =
+    `<input class="cv-name" placeholder="variable_name" style="flex:0 0 200px" value="${esc(name||"")}">`
+    + `<input class="cv-value" placeholder="value (plain text, or HTML when HTML body is on)" style="flex:1" value="${esc(value||"")}">`
+    + `<button type="button" class="btn ghost tiny" title="Remove">✕</button>`;
+  row.querySelector(".cv-name").addEventListener("input", () => { renderFieldChips(); updatePreview(); });
+  row.querySelector(".cv-value").addEventListener("input", updatePreview);
+  row.querySelector("button").addEventListener("click", () => { row.remove(); renderFieldChips(); updatePreview(); });
+  return row;
+}
+function renderCustomVars(vars){
+  const box = $("#cfgCustomVars"); box.innerHTML = "";
+  Object.entries(vars||{}).forEach(([k,v]) => box.appendChild(customVarRow(k, v)));
+  renderFieldChips();
+}
+function addCustomVar(){
+  const row = customVarRow("", ""); $("#cfgCustomVars").appendChild(row);
+  row.querySelector(".cv-name").focus(); renderFieldChips();
+}
+function readCustomVars(){
+  const out = {};
+  document.querySelectorAll("#cfgCustomVars .cv-row").forEach(r => {
+    const k = r.querySelector(".cv-name").value.trim();
+    if(k) out[k] = r.querySelector(".cv-value").value;
+  });
+  return out;
+}
+function customVarNames(){
+  return [...document.querySelectorAll("#cfgCustomVars .cv-name")]
+    .map(i => i.value.trim()).filter(Boolean);
+}
+
+/* ---- insert-field chips: click to drop {placeholder} into the focused box ---- */
+function cfgFocus(id){ cfgLastField = id; $("#cfgInsertTarget").textContent = id === "cfgSubject" ? "Subject" : "Body"; }
+function insertPlaceholder(name){
+  const el = $("#" + cfgLastField); if(!el) return;
+  const tok = "{" + name + "}";
+  const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? el.value.length;
+  el.value = el.value.slice(0, s) + tok + el.value.slice(e);
+  const pos = s + tok.length; el.focus(); el.setSelectionRange(pos, pos);
+  updatePreview();
+}
+function renderFieldChips(){
+  const box = $("#cfgFieldChips"); if(!box) return;
+  const custom = customVarNames();
+  const chip = (n, isCustom) =>
+    `<button type="button" class="btn ghost tiny" onclick="insertPlaceholder('${esc(n)}')"`
+    + ` style="${isCustom?'border-color:var(--gold-2);color:var(--gold-soft);':''}">{${esc(n)}}</button>`;
+  box.innerHTML = custom.map(n => chip(n, true)).join("")
+    + cfgFields.map(n => chip(n, false)).join("");
+}
+async function loadCfgFields(){
+  try {
+    const r = await (await fetch("/api/email-templates/fields")).json();
+    cfgFields = r.fields || [];
+  } catch(e){ cfgFields = []; }
+  renderFieldChips();
+}
+
+// Show the placeholders / behaviour that apply to the selected template type.
+function onTypeChange(){
+  const type = $("#cfgType").value;
+  if(type === "shortlist"){
+    $("#cfgHint").innerHTML = `Drafted in your mailbox when you move selected candidates to <b>Shortlist</b> — one group email. Placeholders: `
+      + `<code>{candidates}</code> <code>{job_title}</code> <code>{company}</code> <code>{link_document}</code>`
+      + ` &nbsp;(<code>{candidates}</code> = numbered name + AI-summary list; <code>{link_document}</code> = the OneDrive résumé folder name)`;
+  } else if(type === "interview"){
+    $("#cfgHint").innerHTML = `Creates an <b>Outlook calendar event</b> draft when you move a candidate to <b>Interview</b>. Placeholders: `
+      + `<code>{full_name_edit}</code> <code>{firstname}</code> <code>{job_title}</code> <code>{company}</code>`
+      + ` &nbsp;(leave <code>&lt;TEAM&gt;</code>, <code>&lt;Prefix&gt;</code> and the Date &amp; Time line to edit in Outlook)`;
+  } else if(type === "offer"){
+    $("#cfgHint").innerHTML = `Drafted in your mailbox when you move a candidate to <b>Offered</b> — the job-offer confirmation. `
+      + `Auto-filled from the Offer popup + candidate record: `
+      + `<code>{prefix_name}</code> <code>{position}</code> <code>{job_level}</code> <code>{role}</code> <code>{department}</code> <code>{section}</code> `
+      + `<code>{people_count}</code> <code>{offer_type}</code> <code>{new_replace_label}</code> <code>{new_replace_text}</code> <code>{supervisor}</code> <code>{buddy}</code> `
+      + `<code>{expected_salary}</code> <code>{current_salary}</code> <code>{start_date}</code> <code>{experience}</code> <code>{interviewer}</code> <code>{recruiter_firstname}</code> <code>{today}</code>`
+      + ` &nbsp;and pre-formatted HTML blocks: <code>{experience_bullets}</code> <code>{link}</code> <code>{interviewer_comments}</code> <code>{recruiter_comments}</code>`;
+  } else {
+    $("#cfgHint").innerHTML = `Sent when HR moves a candidate to <b>Sent Exam</b>. Placeholders: `
+      + `<code>{full_name_edit}</code> <code>{job_title}</code> <code>{company}</code> <code>{deadline}</code>`;
+  }
+  updatePreview();
+}
+
+/* ---- live preview ---- */
+const PREVIEW_SAMPLE = { full_name_edit:"Nattapong Yuwasirinun", firstname:"Nattapong",
+  job_title:"Software Implementer & SA", deadline:"20 April 2026, before 11.59 pm",
+  candidates:"1.  Kasamsak Wongsanin\nQA engineer with MSSQL querying and automation "
+    + "testing on UAT using Robot Framework and Selenium; defines test cases and scenarios.\n\n"
+    + "2.  Kriangsak Sochai\nNew-grad full-stack developer; builds and refactors RESTful "
+    + "APIs with NestJS and supports PostgreSQL operations and migrations.",
+  candidates_html:'<p style="margin:0 0 2px"><b>1.&nbsp; Kasamsak Wongsanin</b></p>'
+    + '<ul style="margin:4px 0 16px 22px"><li>QA engineer; MSSQL querying.</li>'
+    + '<li>Automation testing on UAT with Robot Framework and Selenium.</li></ul>'
+    + '<p style="margin:0 0 2px"><b>2.&nbsp; Kriangsak Sochai</b></p>'
+    + '<ul style="margin:4px 0 16px 22px"><li>New-grad full-stack developer; NestJS REST APIs.</li>'
+    + '<li>Supports PostgreSQL operations and migrations.</li></ul>',
+  link_document:"Software_Implementer_08_06_2026",
+  link_document_html:'<a href="#" style="color:#1155cc;font-weight:bold;text-decoration:underline">Software_Implementer_08_06_2026</a>' };
+function fillSample(text){
+  const html = $("#cfgIsHtml").checked;
+  let out = (text||"")
+    .replaceAll("{full_name_edit}", PREVIEW_SAMPLE.full_name_edit)
+    .replaceAll("{firstname}", PREVIEW_SAMPLE.firstname)
+    .replaceAll("{job_title}", PREVIEW_SAMPLE.job_title)
+    .replaceAll("{company}", $("#cfgCompany").value||"")
+    .replaceAll("{deadline}", PREVIEW_SAMPLE.deadline)
+    .replaceAll("{candidates}", html ? PREVIEW_SAMPLE.candidates_html : PREVIEW_SAMPLE.candidates)
+    .replaceAll("{link_document}", html ? PREVIEW_SAMPLE.link_document_html : PREVIEW_SAMPLE.link_document);
+  // custom variables → their actual values
+  const cv = readCustomVars();
+  for(const [k,v] of Object.entries(cv)) out = out.replaceAll("{"+k+"}", v);
+  // any remaining {placeholder} (DB column, offer field, …) → a visible sample
+  out = out.replace(/\{([a-zA-Z_][\w]*)\}/g, "‹$1›");
+  return out;
+}
+function updatePreview(){
+  const isHtml = $("#cfgIsHtml").checked;
+  const subj = esc(fillSample($("#cfgSubject").value));
+  const bodyFilled = fillSample($("#cfgBody").value);
+  const bodyHtml = isHtml ? bodyFilled
+    : `<pre style="white-space:pre-wrap;font-family:inherit;margin:0">${esc(bodyFilled)}</pre>`;
+  $("#cfgPreviewFrame").srcdoc =
+    `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111;padding:6px">`
+    + `<div style="color:#555"><b>Subject:</b> ${subj}</div><hr>${bodyHtml}</div>`;
+}
+
+/* ---- save / delete ---- */
+async function saveEmailCfg(){
+  const name = $("#cfgName").value.trim();
+  if(!name){ alert("Please give the template a name."); $("#cfgName").focus(); return; }
+  const btn = $("#cfgSaveBtn"); btn.disabled = true; btn.textContent = "Saving…";
+  const payload = {
+    id: cfgCurrentId || undefined, name,
+    type: $("#cfgType").value,
+    company: $("#cfgCompany").value.trim(),
+    attachments: $("#cfgAttachments").value.split("\n").map(s=>s.trim()).filter(Boolean),
+    is_html: $("#cfgIsHtml").checked,
+    default_deadline_time: $("#cfgDeadlineTime").value || "23:59",
+    custom_vars: readCustomVars(),
+    subject: $("#cfgSubject").value, body: $("#cfgBody").value,
+  };
+  try {
+    const r = await (await fetch("/api/email-templates", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)})).json();
+    if(!r.ok) throw new Error("save failed");
+    cfgTemplates = r.templates||[]; cfgCurrentId = r.template.id;
+    renderTemplateList(); fillTemplateFields(r.template); updatePreview();
+    toast("Template saved.", 2500);
+  } catch(e){ toast("Could not save: "+e, 6000); }
+  finally { btn.disabled = false; btn.textContent = "Save template"; }
+}
+async function deleteTemplate(){
+  if(!cfgCurrentId){ newTemplate(); return; }
+  const t = cfgTemplates.find(x => x.id === cfgCurrentId);
+  if(!confirm(`Delete template "${t?t.name:""}"?`)) return;
+  try {
+    const r = await (await fetch("/api/email-templates/delete", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({id:cfgCurrentId})})).json();
+    if(!r.ok) throw new Error("delete failed");
+    cfgTemplates = r.templates||[]; cfgCurrentId = cfgTemplates.length?cfgTemplates[0].id:null;
+    renderTemplateList(); fillTemplateFields(cfgTemplates[0]); updatePreview();
+    toast("Template deleted.", 2500);
+  } catch(e){ toast("Could not delete: "+e, 6000); }
+}
+
+/* ---- email sign-in (delegated device-code auth) ---- */
+let emailAuthPoll = null;
+function renderEmailAuth(s){
+  const isPending = s.status === "pending" && !s.signed_in;
+  $("#emailAuthCode").style.display = (isPending && s.user_code) ? "" : "none";
+  if(s.signed_in){
+    $("#emailAuthStatus").innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — emails send as this mailbox.`;
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "Re-sign in";
+  } else if(isPending){
+    $("#emailAuthStatus").textContent = "Complete the sign-in below:";
+    $("#emailSignInBtn").style.display = "none";
+    if(s.user_code){ $("#emailAuthUserCode").textContent = s.user_code;
+      if(s.verification_uri) $("#emailAuthUri").href = s.verification_uri; }
+  } else {
+    $("#emailAuthStatus").innerHTML = s.error
+      ? `⚠ ${esc(s.error)}` : "Not signed in — sending requires a one-time sign-in.";
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
+  }
+}
+async function refreshEmailAuth(){
+  try { renderEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
+}
+async function startEmailLogin(){
+  $("#emailSignInBtn").disabled = true;
+  try {
+    renderEmailAuth(await (await fetch("/api/email/login-start", {method:"POST"})).json());
+    clearInterval(emailAuthPoll);
+    emailAuthPoll = setInterval(async () => {
+      const s = await (await fetch("/api/email/login-status")).json();
+      renderEmailAuth(s);
+      if(s.signed_in || s.status === "error"){
+        clearInterval(emailAuthPoll); emailAuthPoll = null;
+        if(s.signed_in) toast("Signed in to email as " + s.account + ".", 3000);
+      }
+    }, 2500);
+  } catch(e){ toast("Could not start sign-in: "+e, 6000); }
+  finally { $("#emailSignInBtn").disabled = false; }
+}
+
+/* ---- init ---- */
+async function init(){
+  await loadCfgFields();
+  try {
+    const r = await (await fetch("/api/email-templates")).json();
+    cfgTemplates = r.templates || [];
+    cfgCurrentId = cfgTemplates.length ? cfgTemplates[0].id : null;
+    renderTemplateList();
+    cfgFocus("cfgBody");
+    fillTemplateFields(cfgTemplates[0]);
+    updatePreview();
+  } catch(e){ toast("Could not load templates: "+e, 6000); }
+  refreshEmailAuth();
+}
+init();
+</script>
+</body>
+</html>

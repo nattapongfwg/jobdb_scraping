@@ -434,6 +434,35 @@ class Database:
                 "job_title": r[5], "stage": r[6] or "prescreen",
                 "name_title": r[7]}
 
+    def list_applicant_fields(self) -> list[str]:
+        """Every column name on dbo.applicants, read live from the catalog so a newly
+        added column appears automatically, plus the derived 'job_title'. Powers the
+        insert-field chips in Config Email Template."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'applicants' "
+            "ORDER BY ORDINAL_POSITION")
+        cols = [row[0] for row in cur.fetchall()]
+        if "job_title" not in cols:
+            cols.append("job_title")
+        return cols
+
+    def get_candidate_fields(self, application_id: str) -> dict[str, Any] | None:
+        """Every applicants column for one candidate (keyed by column name) plus the
+        job title — the full placeholder map for filling email templates. Returns None
+        if the candidate is not found."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT a.*, j.title AS job_title "
+            "FROM dbo.applicants a LEFT JOIN dbo.jobs j ON j.job_id = a.job_id "
+            "WHERE a.application_id = ?", application_id)
+        r = cur.fetchone()
+        if not r:
+            return None
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, r))
+
     def get_offer_inputs(self, application_id: str) -> dict[str, Any] | None:
         """Everything the job-offer draft email needs: names + honorific, the
         evaluation-stage fields (position/role/department/section/interviewer),

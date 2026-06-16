@@ -2,17 +2,23 @@
 several of them in the web UI (Config Email Template). All templates send from the
 same signed-in mailbox (delegated /me/sendMail), so there is no per-template sender.
 
-File shape:  {"templates": [ {id, name, company, attachment,
-                              default_deadline_time, subject, body}, ... ]}
+File shape:  {"templates": [ {id, name, type, company, attachments,
+                              default_deadline_time, is_html, custom_vars,
+                              subject, body}, ... ]}
 
 Placeholders in `subject` and `body` (filled per-candidate at send time):
+    {<column>}        ANY column of the applicants table (full_name_jobdb, email,
+                      phone, expect_salary, nickname, …) — auto-available, so a newly
+                      added DB column works with no code change
     {full_name_edit}  the candidate's (editable) name
     {title}           the candidate's honorific prefix (Mr./Ms./Mrs.), "" if unset
     {title_name}      title + name with smart spacing ("Mr. Jane Doe", or just the
                       name when no title) — best for plain-text subjects
+    {firstname}       the first word of the candidate's name
     {job_title}       the job posting title
     {company}         the template's `company` field
     {deadline}        the deadline HR picks when moving to "Sent Exam"
+    {<custom_var>}    any HR-defined custom variable on the template (custom_vars)
 """
 from __future__ import annotations
 
@@ -21,7 +27,7 @@ import re
 import uuid
 from pathlib import Path
 
-from .signature import signature_html, signature_text
+from .signature import RECRUITER_FIRSTNAME, signature_html, signature_text
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 
@@ -125,6 +131,59 @@ DEFAULT_INTERVIEW_FIELDS: dict = {
 }
 
 
+# Job-offer confirmation draft (HTML) — the "ขอยืนยันข้อมูลเสนอจ้างพนักงาน" email built
+# when HR moves a candidate to "Offered". Plain placeholders auto-fill from the popup +
+# candidate record; the {experience_bullets}/{link}/{interviewer_comments}/
+# {recruiter_comments} placeholders are pre-rendered HTML blocks (see offer.build_offer_email).
+DEFAULT_OFFER_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.5">
+<p style="margin:0 0 14px">Dear Job Offering Team,</p>
+<p style="margin:0 0 14px">ขอยืนยันข้อมูลเสนอจ้างพนักงาน {department}: {section} ({role}) จำนวน {people_count} คน ({offer_type})</p>
+<p style="margin:0 0 14px">
+Name: {prefix_name}<br>
+Position: {position}<br>
+Job Level : {job_level}<br>
+{new_replace_label}:&nbsp; {new_replace_text}<br>
+Department: {department}<br>
+Section: {section}
+</p>
+<p style="margin:0 0 14px">
+Direct Supervisor: {supervisor}<br>
+Buddy: {buddy}
+</p>
+<p style="margin:0 0 14px">
+Expected Salary : {expected_salary}<br>
+Current Salary: {current_salary}<br>
+Start Date: {start_date}
+</p>
+<p style="margin:0 0 4px">Experience: {experience}</p>
+{experience_bullets}
+<p style="margin:14px 0 14px">Link: {link}</p>
+<hr style="border:none;border-top:1px solid #999;margin:14px 0">
+<p style="margin:0 0 14px">
+Interviewer : {interviewer}<br>
+ความเห็นผู้สัมภาษณ์ :<br>
+{interviewer_comments}
+</p>
+<p style="margin:0 0 14px">
+ความเห็นฝ่าย Recruit : {recruiter_firstname}<br>
+{recruiter_comments}
+</p>
+<hr style="border:none;border-top:1px solid #999;margin:14px 0">
+<p style="margin:0 0 14px">ช่องทางการสรรหา (Sourcing): JOB DB</p>
+""" + signature_html() + """
+</div>"""
+
+DEFAULT_OFFER_FIELDS: dict = {
+    "type": "offer",
+    "company": "Freewill Solutions Co., Ltd.",
+    "attachments": [],
+    "is_html": True,
+    "default_deadline_time": "23:59",
+    "subject": "ขอยืนยันข้อมูลเสนอจ้างพนักงาน {department}: {section} ({role}) as of {today}",
+    "body": DEFAULT_OFFER_BODY,
+}
+
+
 def _new_id() -> str:
     return uuid.uuid4().hex[:12]
 
@@ -132,7 +191,7 @@ def _new_id() -> str:
 def _normalize(t: dict) -> dict:
     out = {"id": t.get("id") or _new_id(), "name": (t.get("name") or "Untitled").strip()}
     _t = str(t.get("type", "")).strip()
-    out["type"] = _t if _t in ("exam", "shortlist", "interview") else "exam"
+    out["type"] = _t if _t in ("exam", "shortlist", "interview", "offer") else "exam"
     out["company"] = str(t["company"]) if t.get("company") is not None else DEFAULT_FIELDS["company"]
     out["default_deadline_time"] = str(t.get("default_deadline_time") or "23:59")
     out["subject"] = "" if t.get("subject") is None else str(t.get("subject"))
@@ -145,7 +204,48 @@ def _normalize(t: dict) -> dict:
     if not isinstance(atts, list):
         atts = []
     out["attachments"] = [str(a).strip() for a in atts if str(a).strip()]
+    # custom_vars: HR-defined {name: value} placeholders usable as {name} in the
+    # subject/body. Accepts a dict or a [{name, value}, ...] list; empty names dropped.
+    out["custom_vars"] = _normalize_custom_vars(t.get("custom_vars"))
     return out
+
+
+def _normalize_custom_vars(raw) -> dict:
+    """Coerce custom variables to an ordered {name: value} dict (names stripped,
+    blanks dropped). Accepts a dict or a list of {name, value} pairs."""
+    out: dict = {}
+    if isinstance(raw, dict):
+        items = raw.items()
+    elif isinstance(raw, list):
+        items = [(d.get("name"), d.get("value")) for d in raw if isinstance(d, dict)]
+    else:
+        return out
+    for name, val in items:
+        key = str(name or "").strip()
+        if key:
+            out[key] = "" if val is None else str(val)
+    return out
+
+
+def _field_maps(cand: dict, template: dict, *, deadline: str = "") -> tuple[dict, dict]:
+    """Build the placeholder map for one candidate. Returns (base, custom):
+      base   — every DB column (stringified) plus derived name fields
+               (full_name_edit, title, title_name, firstname), company, deadline.
+      custom — the template's HR-defined custom variables.
+    Custom vars never shadow a real column (they fill only otherwise-unused names)."""
+    cand = cand or {}
+    name = (cand.get("full_name_edit") or cand.get("full_name_jobdb") or "")
+    title = cand.get("name_title") or ""
+    first = name.strip().split(" ")[0] if name.strip() else ""
+    base = {k: ("" if v is None else str(v)) for k, v in cand.items()}
+    base.update({
+        "full_name_edit": name, "title": title,
+        "title_name": (f"{title} {name}".strip() if title else name),
+        "firstname": first,
+        "company": template.get("company", ""), "deadline": deadline or "",
+    })
+    custom = {k: v for k, v in (template.get("custom_vars") or {}).items() if k not in base}
+    return base, custom
 
 
 def _seed() -> list[dict]:
@@ -175,6 +275,9 @@ def load_templates() -> list[dict]:
     # Ensure an interview calendar-event template is always available.
     if not any(t.get("type") == "interview" for t in templates):
         templates.append(_normalize({"name": "Interview (calendar)", **DEFAULT_INTERVIEW_FIELDS}))
+    # Ensure a job-offer confirmation template is always available.
+    if not any(t.get("type") == "offer" for t in templates):
+        templates.append(_normalize({"name": "Job Offer (confirmation)", **DEFAULT_OFFER_FIELDS}))
     _write(templates)   # persist seeds/migrations/added templates (stable ids)
     return templates
 
@@ -216,41 +319,32 @@ def get_template(template_id: str) -> dict | None:
     return None
 
 
-def render(template: dict, *, full_name_edit: str, job_title: str,
-           deadline: str, name_title: str = "") -> tuple[str, str]:
-    """Fill the placeholders and return (subject, body)."""
-    name, title = (full_name_edit or ""), (name_title or "")
-    fields = {
-        "full_name_edit": name,
-        "title": title,
-        "title_name": (f"{title} {name}".strip() if title else name),
-        "job_title": job_title or "",
-        "company": template.get("company", ""),
-        "deadline": deadline or "",
-    }
-    return _fill(template.get("subject", ""), fields), _fill(template.get("body", ""), fields)
-
-
-def render_interview(template: dict, *, full_name_edit: str,
-                     job_title: str, name_title: str = "") -> tuple[str, str]:
-    """Fill an interview-event template. {firstname} = first word of the name.
-    Body values are HTML-escaped when the template is HTML; the subject is plain.
-    Returns (subject, body)."""
-    name = full_name_edit or ""
-    first = name.strip().split(" ")[0] if name.strip() else ""
-    title = name_title or ""
-    title_name = (f"{title} {name}".strip() if title else name)
+def _render_with_fields(template: dict, base: dict, custom: dict) -> tuple[str, str]:
+    """Fill subject + body from a (base, custom) field-map. The body HTML-escapes the
+    base (DB/derived) values when the template is HTML; custom variables stay raw so HR
+    can embed links/markup. The subject is always plain text. Returns (subject, body)."""
     is_html = bool(template.get("is_html"))
     e = _esc if is_html else (lambda s: s)
-    body_fields = {"full_name_edit": e(name), "firstname": e(first),
-                   "title": e(title), "title_name": e(title_name),
-                   "job_title": e(job_title or ""), "company": e(template.get("company", ""))}
-    subj_fields = {"full_name_edit": name, "firstname": first,
-                   "title": title, "title_name": title_name,
-                   "job_title": job_title or "", "company": template.get("company", "")}
-
+    body_fields = {**{k: e(v) for k, v in base.items()}, **custom}
+    subj_fields = {**base, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
+
+
+def render(template: dict, *, cand: dict, deadline: str = "") -> tuple[str, str]:
+    """Fill an exam/interview template for one candidate. `cand` is the full applicants
+    field-map (see Database.get_candidate_fields); any {column} placeholder works, plus
+    derived {full_name_edit}/{title}/{title_name}/{firstname}, {company}, {deadline}, and
+    the template's custom variables. Returns (subject, body)."""
+    base, custom = _field_maps(cand, template, deadline=deadline)
+    return _render_with_fields(template, base, custom)
+
+
+def render_interview(template: dict, *, cand: dict) -> tuple[str, str]:
+    """Fill an interview calendar-event template for one candidate (same placeholder
+    set as render(), no deadline). Returns (subject, body)."""
+    base, custom = _field_maps(cand, template)
+    return _render_with_fields(template, base, custom)
 
 
 def render_group(template: dict, *, job_title: str, candidates: list[dict],
@@ -299,11 +393,13 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
         link_str = link_url or link_text or ""
         job, comp = (job_title or ""), template.get("company", "")
 
+    custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
+              if k not in ("job_title", "company", "candidates", "link_document")}
     body_fields = {"job_title": job, "company": comp,
-                   "candidates": candidates_str, "link_document": link_str}
+                   "candidates": candidates_str, "link_document": link_str, **custom}
     # Subject is always plain text (never HTML-escaped / no markup).
     subj_fields = {"job_title": job_title or "", "company": template.get("company", ""),
-                   "candidates": "", "link_document": link_text or link_url or ""}
+                   "candidates": "", "link_document": link_text or link_url or "", **custom}
 
     subject = _fill(template.get("subject", ""), subj_fields)
     raw_body = template.get("body", "")
@@ -313,3 +409,18 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
         body = re.sub(r"(?mi)^(\s*Link document:).*$",
                       lambda m: f"{m.group(1)} {link_str}", body)
     return subject, body
+
+
+def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, str]:
+    """Fill a job-offer template. `fields` are plain values (HTML-escaped into the body,
+    raw in the subject); `blocks` are pre-rendered HTML fragments (experience bullets,
+    link, comment lists) dropped in raw. The template's custom variables also fill (raw,
+    where they don't collide with a field/block). Returns (subject, body)."""
+    is_html = bool(template.get("is_html", True))
+    e = _esc if is_html else (lambda s: s)
+    custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
+              if k not in fields and k not in blocks}
+    body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks, **custom}
+    subj_fields = {**fields, **custom}
+    return (_fill(template.get("subject", ""), subj_fields),
+            _fill(template.get("body", ""), body_fields))

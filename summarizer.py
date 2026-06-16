@@ -1,9 +1,9 @@
 """Resume summarisation via OpenAI (ChatGPT).
 
 Reads a candidate's resume PDF, extracts the text, and asks the model for a
-concise summary (≈30-100 words, 2-4 short paragraphs) of the candidate's
-background, skills and experience so HR can understand the candidate at a glance.
-Used when a candidate reaches the "Sent Exam" pipeline stage.
+concise summary — exactly 3 short paragraphs of 10-20 words each — of the
+candidate's background, skills and experience so HR can understand the candidate
+at a glance. Used when a candidate reaches the "Sent Exam" pipeline stage.
 
 The OpenAI key/model come from .env (OPENAI_API_KEY, OPENAI_MODEL); config.py
 loads .env into the environment at import time, so they are available here.
@@ -22,9 +22,10 @@ log = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = "gpt-5.4-nano"
-# Target length, expressed in words (the model is asked to finish its sentences).
-MIN_WORDS, MAX_WORDS = 30, 100
-# Generous output cap so a ~100-word summary is never cut off mid-sentence
+# The Sent-Exam summary is exactly 3 paragraphs of this many words each.
+PARAGRAPHS = 3
+MIN_WORDS_PER_PARA, MAX_WORDS_PER_PARA = 10, 20
+# Generous output cap so a ~60-word summary is never cut off mid-sentence
 # (≈1.4 tokens/word + headroom).
 MAX_OUTPUT_TOKENS = 250
 
@@ -121,7 +122,8 @@ def _chat(api_key: str, model: str, messages: list[dict]) -> requests.Response:
 
 def summarize_resume(resume_path: str, candidate_name: str = "",
                      job_title: str = "") -> str:
-    """Return a ≈30-100 word summary (2-4 paragraphs) of one candidate's resume.
+    """Return a summary of one candidate's resume — exactly 3 short paragraphs of
+    10-20 words each.
 
     Raises SummaryError on any failure (missing key, unreadable PDF, empty text,
     or an OpenAI API error) so the caller can surface a clean message.
@@ -143,17 +145,17 @@ def summarize_resume(resume_path: str, candidate_name: str = "",
     role = f" who is applying for the role of \"{job_title}\"" if job_title else ""
     system = (
         "You are an HR recruiting assistant. You read a candidate's resume and "
-        "write a clear, concise summary, in flowing English prose, that lets a "
-        "hiring manager quickly understand the candidate. "
-        f"Write {MIN_WORDS}-{MAX_WORDS} words, and ALWAYS split it into 2 to 4 "
-        "short paragraphs. Put one blank line (two newlines) between each "
-        "paragraph — do NOT return a single block of text. Keep each paragraph "
-        "brief and to the point. "
+        "write a clear, concise summary that lets a hiring manager quickly "
+        "understand the candidate. "
+        f"Write EXACTLY {PARAGRAPHS} SHORT paragraphs. Each paragraph MUST be a "
+        f"single line of only {MIN_WORDS_PER_PARA}-{MAX_WORDS_PER_PARA} words "
+        f"(never more than {MAX_WORDS_PER_PARA} words). Separate the paragraphs "
+        "with one blank line (two newlines) — do NOT return a single block of text. "
+        "Make the 3 paragraphs cover, in order: (1) the current or most recent role "
+        "with total years and field of experience; (2) core technical skills and "
+        "tools; (3) notable projects, achievements, or key strengths. "
         "IMPORTANT: always finish your sentences — never cut off mid-sentence and "
         "never end with an ellipsis ('...'). End on a complete, natural sentence. "
-        "Cover, where the resume provides it: the current or most recent role, "
-        "total years and field of experience, core technical skills and tools, "
-        "notable projects or achievements, education, and key strengths. "
         "Output ONLY the summary text — no headings, labels, bullet points, or "
         "quotation marks."
     )
