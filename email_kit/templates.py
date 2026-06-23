@@ -2,7 +2,7 @@
 several of them in the web UI (Config Email Template). All templates send from the
 same signed-in mailbox (delegated /me/sendMail), so there is no per-template sender.
 
-File shape:  {"templates": [ {id, name, type, company, attachments,
+File shape:  {"templates": [ {id, name, type, company, attachments, cc,
                               default_deadline_time, is_html, custom_vars,
                               subject, body}, ... ]}
 
@@ -57,11 +57,17 @@ Deadline: {deadline}
 
 """ + signature_text()
 
+# Default team CC for exam emails. HR-editable per exam template on the config page;
+# this only backfills legacy exam templates that predate the CC field.
+DEFAULT_EXAM_CC = ["Tanakrit_Jai@FreewillSolutions.com",
+                   "Suttharinthon_tap@freewillsolutions.com"]
+
 # Per-template fields and their defaults (id + name handled separately).
 DEFAULT_FIELDS: dict = {
     "type": "exam",                         # "exam" (to candidate) | "shortlist" (group, to team)
     "company": "Freewill Solutions Co., Ltd.",
     "attachments": [],                      # list of file paths to attach (optional)
+    "cc": list(DEFAULT_EXAM_CC),            # extra CC recipients (exam emails only)
     "is_html": False,                       # send body as HTML (else plain text)
     "default_deadline_time": "23:59",       # prefilled time in the deadline picker
     "subject": "Freewill Solutions_Interview: {title_name} ({job_title})",
@@ -204,10 +210,31 @@ def _normalize(t: dict) -> dict:
     if not isinstance(atts, list):
         atts = []
     out["attachments"] = [str(a).strip() for a in atts if str(a).strip()]
+    # cc: extra recipients copied on the email. Only exam emails use it at send time;
+    # other types keep it empty. Legacy exam templates (no cc key) get the team default
+    # so the existing behaviour is preserved until HR edits it.
+    if "cc" in t:
+        out["cc"] = _normalize_cc(t.get("cc"))
+    elif out["type"] == "exam":
+        out["cc"] = list(DEFAULT_EXAM_CC)
+    else:
+        out["cc"] = []
     # custom_vars: HR-defined {name: value} placeholders usable as {name} in the
     # subject/body. Accepts a dict or a [{name, value}, ...] list; empty names dropped.
     out["custom_vars"] = _normalize_custom_vars(t.get("custom_vars"))
     return out
+
+
+def _normalize_cc(raw) -> list[str]:
+    """Coerce a CC value to a list of trimmed email addresses. Accepts a list, or a
+    string separated by commas, semicolons, or newlines. Blanks are dropped."""
+    if isinstance(raw, str):
+        parts = re.split(r"[,;\n]", raw)
+    elif isinstance(raw, list):
+        parts = [str(x) for x in raw]
+    else:
+        return []
+    return [p.strip() for p in parts if p.strip()]
 
 
 def _normalize_custom_vars(raw) -> dict:

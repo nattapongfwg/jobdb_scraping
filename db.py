@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import pyodbc
@@ -22,18 +23,49 @@ log = logging.getLogger(__name__)
 # scraped_at / exam_sent_at values so every table stores Thai local time.
 THAI_NOW = "CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)"
 
+
+def _years_or_none(v: Any) -> float | None:
+    """Coerce an AI experience value ('4.50', 4.5, '') to a float for the
+    DECIMAL(5,2) columns, or None when it isn't a plain number."""
+    s = str(v if v is not None else "").strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def candidate_key(app: dict[str, Any]) -> str | None:
+    """Stable per-candidate identity within a job, used for deduping across
+    re-scrapes. SEEK's application_id (selected=<uuid>) is regenerated every
+    scraping session, so it can't recognise a returning candidate — keying on it
+    produced duplicate rows. Instead derive a key from stable application content:
+    the normalized name + the application timestamp (both stable, and both
+    readable from the card BEFORE clicking, so the fast pre-click skip can use it
+    too). Returns None when there's nothing to key on.
+
+    Accepts both scraper dicts ('full_name') and DB rows ('full_name_jobdb')."""
+    name = app.get("full_name") or app.get("full_name_jobdb") or ""
+    name = re.sub(r"\s+", " ", name).strip().lower()
+    applied = (app.get("applied_at") or "").strip()
+    if not name and not applied:
+        return None
+    return f"{name}|{applied}"
+
 # Hiring pipeline stages, in strict forward order. A candidate may only advance
-# one step at a time: Pending -> Sent Exam -> Shortlist -> Interview -> Evaluation -> Offered.
+# one step at a time: Pending -> Wait Pre-screen -> Sent Exam -> Shortlist -> Interview -> Evaluation -> Offered.
 # NOTE: the first stage keeps its original key "prescreen" (only the label changed
 # to "Pending") so existing rows — all stored as 'prescreen' — stay valid with no
 # data migration.
 # Display order (sidebar, left→right): Not Interest is the off-ramp left of Pending.
-# The forward flow prescreen→sent_exam→…→offered stays monotonic so the index-based
-# milestone backfill below keeps working.
-STAGES = ["not_interest", "prescreen", "sent_exam", "shortlist", "interview", "evaluation", "offered"]
+# The forward flow prescreen→wait_prescreen→sent_exam→…→offered stays monotonic so the
+# index-based milestone backfill below keeps working.
+STAGES = ["not_interest", "prescreen", "wait_prescreen", "sent_exam", "shortlist", "interview", "evaluation", "offered"]
 STAGE_LABELS = {
     "not_interest": "Not Interest",
     "prescreen": "Pending",
+    "wait_prescreen": "Wait Pre-screen",
     "sent_exam": "Sent Exam",
     "shortlist": "Shortlist",
     "interview": "Interview",
@@ -41,19 +73,21 @@ STAGE_LABELS = {
     "offered": "Offered",
 }
 # Allowed stage transitions (branching, not strictly linear):
-#   Not Interest ← Pending → Sent Exam → Shortlist → Interview → Evaluation → Offered
-# Pending can go to Not Interest or Sent Exam; Not Interest can only go back to Pending.
+#   Not Interest ← Pending → Wait Pre-screen → Sent Exam → Shortlist → Interview → Evaluation → Offered
+# Pending advances to Wait Pre-screen (or the Not Interest off-ramp). Wait Pre-screen
+# can go to Sent Exam or Not Interest. Not Interest can only go back to Pending.
 # Each list = forward target(s) first, then the one-step "back" target. A backward
 # move is a plain stage correction: the webapp does NOT fire that stage's side
 # effects (email/draft/folder move), and set_stage preserves the recorded dates.
 ALLOWED_MOVES = {
-    "prescreen":    ["sent_exam", "not_interest"],   # forward first, off-ramp second
-    "not_interest": ["prescreen"],
-    "sent_exam":    ["shortlist", "prescreen"],
-    "shortlist":    ["interview", "sent_exam"],
-    "interview":    ["evaluation", "shortlist"],
-    "evaluation":   ["offered", "interview"],
-    "offered":      ["evaluation"],
+    "prescreen":      ["wait_prescreen", "not_interest"],  # forward first, off-ramp second
+    "wait_prescreen": ["sent_exam", "not_interest"],       # forward to exam, or off-ramp
+    "not_interest":   ["prescreen"],
+    "sent_exam":      ["shortlist", "wait_prescreen"],
+    "shortlist":      ["interview", "sent_exam"],
+    "interview":      ["evaluation", "shortlist"],
+    "evaluation":     ["offered", "interview"],
+    "offered":        ["evaluation"],
 }
 # Which date column each stage records when a candidate is moved into it. The
 # "Sent Exam" stage has no date column — it sets is_sent_exam/exam_sent_at instead.
@@ -170,7 +204,13 @@ class Database:
         USING (SELECT ? AS job_id, ? AS title, ? AS location, ? AS url) AS src
             ON tgt.job_id = src.job_id
         WHEN MATCHED THEN UPDATE SET
-            title = src.title, location = src.location, url = src.url,
+            -- COALESCE so a re-scrape never wipes a good value with NULL: when a
+            -- --job-id run can't find the job in the open-jobs list it passes
+            -- title/location/url = NULL, which used to blank the stored title
+            -- (UI then showed "(untitled)"). Keep the existing value in that case.
+            title = COALESCE(src.title, tgt.title),
+            location = COALESCE(src.location, tgt.location),
+            url = COALESCE(src.url, tgt.url),
             scraped_at = {THAI_NOW}
         WHEN NOT MATCHED THEN
             INSERT (job_id, title, location, url)
@@ -188,35 +228,41 @@ class Database:
             raw = json.dumps(raw, ensure_ascii=False)
         sql = f"""
         MERGE dbo.applicants AS tgt
-        USING (SELECT ? AS application_id) AS src
-            ON tgt.application_id = src.application_id
+        USING (SELECT ? AS job_id, ? AS candidate_key) AS src
+            ON tgt.job_id = src.job_id AND tgt.candidate_key = src.candidate_key
         WHEN MATCHED THEN UPDATE SET
-            job_id = ?, full_name_jobdb = ?, email = ?, phone = ?, expect_salary = ?,
+            full_name_jobdb = ?, email = ?, phone = ?, expect_salary = ?,
             location = ?, applied_at = ?, status = ?, resume_filename = ?, resume_path = ?,
             resume_downloaded = ?, raw_json = ?, scraped_at = {THAI_NOW}
         WHEN NOT MATCHED THEN
-            INSERT (application_id, job_id, full_name_jobdb, full_name_edit, email, phone,
-                    expect_salary, location, applied_at, status, resume_filename, resume_path,
-                    resume_downloaded, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT (application_id, job_id, candidate_key, full_name_jobdb, full_name_edit,
+                    email, phone, expect_salary, location, applied_at, status,
+                    resume_filename, resume_path, resume_downloaded, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
-        # NOTE: full_name_edit is seeded from the scraped name on INSERT and NOT
-        # touched on UPDATE, so manual edits in the web UI survive re-scrapes.
+        # The MERGE keys on (job_id, candidate_key) — a STABLE identity — NOT on
+        # application_id, which SEEK regenerates each scrape. On MATCH we therefore
+        # update the existing row in place and deliberately do NOT touch
+        # application_id (the PK keeps its first-seen value) or the HR pipeline
+        # columns (stage/dates/full_name_edit), so a returning candidate stays put
+        # instead of spawning a duplicate Pending row.
         aid = str(app["application_id"])
+        ckey = candidate_key(app)
         vals_update = (
-            app.get("job_id"), app.get("full_name"), app.get("email"),
+            app.get("full_name"), app.get("email"),
             app.get("phone"), app.get("expect_salary"), app.get("location"),
             app.get("applied_at"), app.get("status"), app.get("resume_filename"),
             app.get("resume_path"), 1 if app.get("resume_downloaded") else 0, raw,
         )
         vals_insert = (
-            aid, app.get("job_id"), app.get("full_name"), app.get("full_name"),
+            aid, app.get("job_id"), ckey, app.get("full_name"), app.get("full_name"),
             app.get("email"), app.get("phone"), app.get("expect_salary"),
             app.get("location"), app.get("applied_at"), app.get("status"),
             app.get("resume_filename"), app.get("resume_path"),
             1 if app.get("resume_downloaded") else 0, raw,
         )
-        self.conn.cursor().execute(sql, aid, *vals_update, *vals_insert)
+        self.conn.cursor().execute(
+            sql, app.get("job_id"), ckey, *vals_update, *vals_insert)
         self.conn.commit()
 
     def light_upsert_applicant(self, app: dict[str, Any]) -> None:
@@ -225,29 +271,33 @@ class Database:
         email/phone and the HR-editable full_name_edit are PRESERVED — COALESCE keeps
         the existing value when the incoming one is NULL. No INSERT branch: a skip
         target is, by definition, already in the table."""
-        aid = str(app["application_id"])
+        ckey = candidate_key(app)
         sql = f"""
         MERGE dbo.applicants AS tgt
-        USING (SELECT ? AS application_id) AS src
-            ON tgt.application_id = src.application_id
+        USING (SELECT ? AS job_id, ? AS candidate_key) AS src
+            ON tgt.job_id = src.job_id AND tgt.candidate_key = src.candidate_key
         WHEN MATCHED THEN UPDATE SET
-            job_id          = COALESCE(?, tgt.job_id),
             full_name_jobdb = COALESCE(?, tgt.full_name_jobdb),
             applied_at      = COALESCE(?, tgt.applied_at),
             expect_salary   = COALESCE(?, tgt.expect_salary),
             scraped_at      = {THAI_NOW};
         """
         self.conn.cursor().execute(
-            sql, aid, app.get("job_id"), app.get("full_name"),
+            sql, app.get("job_id"), ckey, app.get("full_name"),
             app.get("applied_at"), app.get("expect_salary"))
         self.conn.commit()
 
-    def get_downloaded_application_ids(self, job_id: str) -> set[str]:
-        """application_ids for this job that already have a downloaded resume
-        (resume_downloaded=1). Preloaded once per run for O(1) duplicate checks."""
+    def get_downloaded_candidate_keys(self, job_id: str) -> set[str]:
+        """candidate_keys for this job that already have a downloaded resume
+        (resume_downloaded=1). Preloaded once per run for O(1) duplicate checks.
+
+        Keyed on the STABLE candidate_key (not the volatile application_id) so a
+        returning candidate is recognised on re-scrape and skipped pre-click
+        instead of being re-downloaded and re-inserted as a duplicate."""
         cur = self.conn.cursor()
-        cur.execute("SELECT application_id FROM dbo.applicants "
-                    "WHERE job_id = ? AND resume_downloaded = 1", str(job_id))
+        cur.execute("SELECT candidate_key FROM dbo.applicants "
+                    "WHERE job_id = ? AND resume_downloaded = 1 "
+                    "AND candidate_key IS NOT NULL", str(job_id))
         return {r[0] for r in cur.fetchall()}
 
     def count(self, table: str) -> int:
@@ -301,7 +351,10 @@ class Database:
         "name_title, "                                # r[22] (honorific prefix: Mr./Ms./Mrs.)
         "[position], [role], company, department, section, interviewer, recruiter_name, "  # r[23]-r[29] (eval form)
         "sent_exam_stamped_date, shortlist_stamped_date, interview_stamped_date, "  # r[30]-r[32]
-        "evaluation_stamped_date, offered_stamped_date"                             # r[33]-r[34] (stage entry stamps)
+        "evaluation_stamped_date, offered_stamped_date, "                           # r[33]-r[34] (stage entry stamps)
+        "university, major, ai_extract_json, "                                      # r[35]-r[37] (AI résumé extraction)
+        "remark, "                                                                   # r[38] (HR free-text note)
+        "exp_total, exp_directly"                                                    # r[39]-r[40] (AI experience, years)
     )
 
     @staticmethod
@@ -310,6 +363,8 @@ class Database:
             return v.isoformat() if v else None
         def _ts(v: Any) -> str | None:   # datetime -> "YYYY-MM-DD HH:MM" (Thai)
             return v.isoformat(sep=" ", timespec="minutes") if v else None
+        def _dec(v: Any) -> str | None:  # Decimal years -> "4.50" (JSON-safe), else None
+            return f"{v:.2f}" if v is not None else None
         return {
             "application_id": r[0], "job_id": r[1], "full_name_jobdb": r[2], "full_name_edit": r[3],
             "email": r[4], "phone": r[5], "applied_at": r[6],
@@ -330,6 +385,9 @@ class Database:
             "sent_exam_stamped_date": _ts(r[30]), "shortlist_stamped_date": _ts(r[31]),
             "interview_stamped_date": _ts(r[32]), "evaluation_stamped_date": _ts(r[33]),
             "offered_stamped_date": _ts(r[34]),
+            "university": r[35], "major": r[36], "ai_extract_json": r[37],
+            "remark": r[38],
+            "exp_total": _dec(r[39]), "exp_directly": _dec(r[40]),
         }
 
     def list_candidates(self, job_id: str, name_query: str = "") -> list[dict[str, Any]]:
@@ -368,7 +426,7 @@ class Database:
         out = []
         for r in cur.fetchall():
             cand = self._row_to_candidate(r)
-            cand["job_title"] = r[35]   # after eval cols(23-29) + 5 stage stamps(30-34)
+            cand["job_title"] = r[-1]   # j.title is always the last selected column
             out.append(cand)
         return out
 
@@ -489,7 +547,7 @@ class Database:
         cur = self.conn.cursor()
         cur.execute(
             "SELECT a.offer_experience_ai, a.ai_summary, a.resume_path, a.resume_downloaded, "
-            "a.full_name_edit, a.full_name_jobdb, j.title "
+            "a.full_name_edit, a.full_name_jobdb, j.title, a.offer_experience "
             "FROM dbo.applicants a LEFT JOIN dbo.jobs j ON j.job_id = a.job_id "
             "WHERE a.application_id = ?", application_id)
         r = cur.fetchone()
@@ -497,13 +555,22 @@ class Database:
             return None
         return {"offer_experience_ai": r[0], "ai_summary": r[1], "resume_path": r[2],
                 "resume_downloaded": bool(r[3]), "full_name_edit": r[4],
-                "full_name_jobdb": r[5], "job_title": r[6]}
+                "full_name_jobdb": r[5], "job_title": r[6], "offer_experience": r[7]}
 
     def save_offer_experience(self, application_id: str, experience_ai: str) -> None:
         """Cache the generated/edited AI experience detail (the bullet paragraphs)."""
         self.conn.cursor().execute(
             "UPDATE dbo.applicants SET offer_experience_ai = ? WHERE application_id = ?",
             (experience_ai or None), application_id)
+        self.conn.commit()
+
+    def save_offer_headline(self, application_id: str, headline: str) -> None:
+        """Cache the generated/edited AI experience HEADLINE (the one-line
+        "<Position> <Company> <duration>, …" text). Reuses the offer_experience
+        column — the same column save_offer writes the final headline to."""
+        self.conn.cursor().execute(
+            "UPDATE dbo.applicants SET offer_experience = ? WHERE application_id = ?",
+            (headline or None), application_id)
         self.conn.commit()
 
     def save_offer(self, application_id: str, *, people_count: str | None,
@@ -533,13 +600,23 @@ class Database:
     def update_candidate(self, application_id: str, full_name_edit: str | None,
                          email: str | None, phone: str | None,
                          nickname: str | None = None,
-                         name_title: str | None = None) -> None:
-        """Update the user-editable fields for one candidate."""
+                         name_title: str | None = None,
+                         university: str | None = None,
+                         major: str | None = None,
+                         remark: str | None = None,
+                         exp_total: Any = None, exp_directly: Any = None) -> None:
+        """Update the user-editable fields for one candidate. exp_total/exp_directly
+        are the (HR-editable) AI experience years — coerced to a number or NULL."""
         self.conn.cursor().execute(
             "UPDATE dbo.applicants SET full_name_edit = ?, email = ?, phone = ?, "
-            "nickname = ?, name_title = ? WHERE application_id = ?",
+            "nickname = ?, name_title = ?, university = ?, major = ?, remark = ?, "
+            "exp_total = ?, exp_directly = ? "
+            "WHERE application_id = ?",
             (full_name_edit or None), (email or None), (phone or None),
-            (nickname or None), (name_title or None), application_id)
+            (nickname or None), (name_title or None),
+            (university or None), (major or None), ((remark or "")[:1000] or None),
+            _years_or_none(exp_total), _years_or_none(exp_directly),
+            application_id)
         self.conn.commit()
 
     def save_evaluation(self, application_id: str, *, position: str | None,
@@ -571,7 +648,8 @@ class Database:
         cur = self.conn.cursor()
         cur.execute(
             "SELECT a.resume_path, a.resume_downloaded, a.full_name_edit, "
-            "a.full_name_jobdb, j.title, a.ai_summary, a.name_title "
+            "a.full_name_jobdb, j.title, a.ai_summary, a.name_title, "
+            "a.university, a.major, a.ai_extract_json "
             "FROM dbo.applicants a LEFT JOIN dbo.jobs j ON j.job_id = a.job_id "
             "WHERE a.application_id = ?", application_id)
         r = cur.fetchone()
@@ -579,13 +657,34 @@ class Database:
             return None
         return {"resume_path": r[0], "resume_downloaded": bool(r[1]),
                 "full_name_edit": r[2], "full_name_jobdb": r[3],
-                "job_title": r[4], "ai_summary": r[5], "name_title": r[6]}
+                "job_title": r[4], "ai_summary": r[5], "name_title": r[6],
+                "university": r[7], "major": r[8], "ai_extract_json": r[9]}
 
     def save_ai_summary(self, application_id: str, summary: str) -> None:
         """Store a generated resume summary (stamped with Thai local time)."""
         self.conn.cursor().execute(
             f"UPDATE dbo.applicants SET ai_summary = ?, ai_summary_at = {THAI_NOW} "
             "WHERE application_id = ?", summary, application_id)
+        self.conn.commit()
+
+    def save_ai_extract(self, application_id: str, extract_json: str,
+                        full_name: str | None = None,
+                        exp_total: Any = None, exp_directly: Any = None) -> None:
+        """Cache the raw AI résumé-extraction JSON (stamped with Thai local time) and
+        persist the computed experience years (exp_total / exp_directly). When
+        `full_name` is non-empty, also overwrite full_name_edit with the AI-formatted
+        name (university/major stay as suggestions until HR saves)."""
+        sets = ["ai_extract_json = ?", f"ai_extract_at = {THAI_NOW}",
+                "exp_total = ?", "exp_directly = ?"]
+        params: list[Any] = [extract_json, _years_or_none(exp_total),
+                             _years_or_none(exp_directly)]
+        if full_name and full_name.strip():
+            sets.append("full_name_edit = ?")
+            params.append(full_name.strip())
+        params.append(application_id)
+        self.conn.cursor().execute(
+            f"UPDATE dbo.applicants SET {', '.join(sets)} WHERE application_id = ?",
+            *params)
         self.conn.commit()
 
     def get_reply_inputs(self, application_id: str) -> dict[str, Any] | None:

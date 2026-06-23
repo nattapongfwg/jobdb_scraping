@@ -190,11 +190,27 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 0 0 1.5px var(--gold-2), inset 0 0 8px rgba(0,0,0,.3);
 }
 .cand-name { margin: 0 0 4px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-/* Line 1: title prefix (10%) + name_edit (45%) + email (45%).  Line 2: JobDB name + phone.
-   flex-grow ratios give the 10/45/45 split; min-width:0 lets children shrink, not overflow. */
+/* Line 1: title prefix + nickname + name_edit + email.  Line 2: JobDB name + phone.
+   flex-grow ratios give the 10/22/38/38 split; min-width:0 lets children shrink, not overflow. */
 .cand-name .cd-title  { flex: 10 1 0; min-width: 0; }
-.cand-name .cd-name   { flex: 45 1 0; min-width: 0; }
-.cand-name .cd-email  { flex: 45 1 0; min-width: 0; font-weight: 600; }
+.cand-name .cd-nick   { flex: 22 1 0; min-width: 0; font-weight: 600; }
+.cand-name .cd-name   { flex: 38 1 0; min-width: 0; }
+.cand-name .cd-email  { flex: 38 1 0; min-width: 0; font-weight: 600; }
+.cand-extra { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cand-extra .cd-uni   { flex: 55 1 0; min-width: 0; }
+.cand-extra .cd-major { flex: 45 1 0; min-width: 0; }
+/* AI-computed experience, editable (Wait Pre-screen + Sent Exam) */
+.cand-exp { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.exp-field { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  color: var(--ink-soft); padding: 2px 9px; border-radius: 999px;
+  background: rgba(212,175,55,.08); border: 1px solid var(--gold-2); }
+.exp-field .cd-exp { width: 46px; text-align: center; padding: 2px 4px; border-radius: 6px;
+  border: 1px solid var(--gold-2); background: var(--bg-2); color: var(--gold-soft);
+  font-weight: 700; font-size: 12px; }
+.exp-field .cd-exp:focus { outline: none; border-color: var(--gold); }
+.exp-field .cd-exp.saved { border-color: var(--green); background: var(--green-bg); }
+.exp-field.direct { background: rgba(80,160,120,.10); border-color: var(--green); }
+.exp-field.direct .cd-exp { color: var(--green); border-color: var(--green); }
 .cand-sub2 { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .cand-sub2 .cd-jobdb  { flex: 1 1 0; min-width: 0; margin-top: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -202,6 +218,18 @@ a { color: inherit; text-decoration: none; }
 .drag-handle { color: var(--muted); cursor: grab; }
 .cand-sub { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; word-break: break-all; }
 .cand-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---- HR remark (editable on every stage card) ---- */
+.cand-remark { margin-top: 10px; }
+.cand-remark .cd-remark {
+  width: 100%; resize: vertical; min-height: 46px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--ink-soft);
+  font: 13px/1.5 system-ui, "Segoe UI", Arial, sans-serif;
+}
+.cand-remark .cd-remark:focus { outline: none; border-color: var(--gold); color: var(--ink); }
+.cand-remark .cd-remark.saved { border-color: var(--green); background: var(--green-bg); }
+/* Remark cell in the Status Tracking table */
+.remark-cell { min-width: 180px; resize: vertical; font: 13px/1.4 system-ui, "Segoe UI", Arial, sans-serif; }
 
 /* ---- AI résumé summary (Sent Exam stage cards) ---- */
 .ai-summary {
@@ -336,17 +364,20 @@ tbody tr:hover { background: var(--panel-2); }
 }
 
 /* ---- resume drawer (slides in from the right) ---- */
+/* Transparent + click-through so the board behind the résumé drawer stays
+   visible and interactive (close via ✕ or Esc). */
 .drawer-overlay {
-  position: fixed; inset: 0; background: rgba(4,7,13,.6); backdrop-filter: blur(2px);
+  position: fixed; inset: 0; background: transparent;
   opacity: 0; visibility: hidden; transition: opacity .25s ease; z-index: 300;
+  pointer-events: none;
 }
 .drawer-overlay.open { opacity: 1; visibility: visible; }
 .drawer {
-  position: fixed; top: 0; right: 0; height: 100vh; width: min(880px, 94vw);
-  background: var(--panel); border-left: 1px solid var(--line);
-  box-shadow: -14px 0 50px rgba(0,0,0,.5); z-index: 301;
+  position: fixed; top: 0; left: 0; height: 100vh; width: min(880px, 94vw);
+  background: var(--panel); border-right: 1px solid var(--line);
+  box-shadow: 14px 0 50px rgba(0,0,0,.5); z-index: 301;
   display: flex; flex-direction: column;
-  transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
+  transform: translateX(-100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
 }
 .drawer.open { transform: translateX(0); }
 .drawer-head {

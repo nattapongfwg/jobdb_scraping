@@ -81,15 +81,30 @@
     <a class="btn secondary" href="/">← Back to Postings</a>
   </div>
 
-  <!-- Sign-in status -->
+  <!-- Sign-in status — two delegated accounts, each signs in once -->
   <div class="auth-box" id="emailAuthBox">
-    <div id="emailAuthStatus" class="muted" style="font-size:13px">Checking sign-in…</div>
-    <button class="btn secondary" id="emailSignInBtn" onclick="startEmailLogin()"
-            style="display:none;margin-top:8px">🔑 Sign in to email</button>
-    <div id="emailAuthCode" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
-      1. Open <a id="emailAuthUri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
-      2. Enter code: <b id="emailAuthUserCode" style="font-size:16px;letter-spacing:1px"></b><br>
-      3. Sign in as your sender mailbox — <span class="muted" id="emailAuthWait">waiting for you to finish…</span>
+    <div style="font-weight:600;margin-bottom:8px">Email sign-in <span class="muted" style="font-weight:400;font-size:12px">(one-time, per account)</span></div>
+
+    <div class="auth-acct" data-acct="sender" style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.12)">
+      <div data-role="status" class="muted" style="font-size:13px">Checking sign-in…</div>
+      <button class="btn secondary" data-role="btn" onclick="startEmailLogin('sender')"
+              style="display:none;margin-top:8px">🔑 Sign in — Sender (Sent Exam)</button>
+      <div data-role="code" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
+        1. Open <a data-role="uri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
+        2. Enter code: <b data-role="usercode" style="font-size:16px;letter-spacing:1px"></b><br>
+        3. Sign in as the SENDER mailbox (nattapong_yuw) — <span class="muted">waiting for you to finish…</span>
+      </div>
+    </div>
+
+    <div class="auth-acct" data-acct="recruiter">
+      <div data-role="status" class="muted" style="font-size:13px">Checking sign-in…</div>
+      <button class="btn secondary" data-role="btn" onclick="startEmailLogin('recruiter')"
+              style="display:none;margin-top:8px">🔑 Sign in — Recruiter (Shortlist / Interview / Evaluation / Offer)</button>
+      <div data-role="code" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
+        1. Open <a data-role="uri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
+        2. Enter code: <b data-role="usercode" style="font-size:16px;letter-spacing:1px"></b><br>
+        3. Sign in as the RECRUITER mailbox (Recruite) — <span class="muted">waiting for you to finish…</span>
+      </div>
     </div>
   </div>
 
@@ -122,6 +137,11 @@
 
       <label style="margin-top:14px;display:block">Attachment file paths — one per line
         <textarea id="cfgAttachments" rows="3" style="font-family:ui-monospace,monospace" placeholder="E:\jobdb_scraping\exam\INS-Imp.pdf&#10;E:\jobdb_scraping\exam\logic.pdf"></textarea>
+      </label>
+
+      <!-- CC recipients (exam emails only) -->
+      <label id="cfgCcRow" style="margin-top:14px;display:block">CC recipients — comma-separated <span class="muted" style="font-size:12px">(copied on the exam email)</span>
+        <input id="cfgCc" placeholder="alice@freewillsolutions.com, bob@freewillsolutions.com">
       </label>
 
       <!-- Custom variables -->
@@ -183,6 +203,7 @@ function fillTemplateFields(t){
   $("#cfgName").value = t.name||""; $("#cfgCompany").value = t.company||"";
   $("#cfgType").value = ["shortlist","interview","offer"].includes(t.type) ? t.type : "exam";
   $("#cfgAttachments").value = (t.attachments||[]).join("\n");
+  $("#cfgCc").value = (t.cc||[]).join(", ");
   $("#cfgIsHtml").checked = !!t.is_html;
   $("#cfgDeadlineTime").value = t.default_deadline_time||"23:59";
   $("#cfgSubject").value = t.subject||""; $("#cfgBody").value = t.body||"";
@@ -281,6 +302,7 @@ async function loadCfgFields(){
 // Show the placeholders / behaviour that apply to the selected template type.
 function onTypeChange(){
   const type = $("#cfgType").value;
+  $("#cfgCcRow").style.display = (type === "exam") ? "block" : "none";   // CC is exam-only
   if(type === "shortlist"){
     $("#cfgHint").innerHTML = `Drafted in your mailbox when you move selected candidates to <b>Shortlist</b> — one group email. Placeholders: `
       + `<code>{candidates}</code> <code>{job_title}</code> <code>{company}</code> <code>{link_document}</code>`
@@ -356,6 +378,9 @@ async function saveEmailCfg(){
     type: $("#cfgType").value,
     company: $("#cfgCompany").value.trim(),
     attachments: $("#cfgAttachments").value.split("\n").map(s=>s.trim()).filter(Boolean),
+    // CC applies to exam emails only; other types always save an empty list.
+    cc: $("#cfgType").value === "exam"
+      ? $("#cfgCc").value.split(/[,;\n]/).map(s=>s.trim()).filter(Boolean) : [],
     is_html: $("#cfgIsHtml").checked,
     default_deadline_time: $("#cfgDeadlineTime").value || "23:59",
     custom_vars: readCustomVars(),
@@ -385,43 +410,52 @@ async function deleteTemplate(){
   } catch(e){ toast("Could not delete: "+e, 6000); }
 }
 
-/* ---- email sign-in (delegated device-code auth) ---- */
+/* ---- email sign-in (two delegated device-code accounts) ---- */
 let emailAuthPoll = null;
-function renderEmailAuth(s){
+const EMAIL_ACCTS = ["sender", "recruiter"];
+function acctEl(acct, role){
+  return document.querySelector(`.auth-acct[data-acct="${acct}"] [data-role="${role}"]`);
+}
+function renderEmailAuth(acct, s){
   const isPending = s.status === "pending" && !s.signed_in;
-  $("#emailAuthCode").style.display = (isPending && s.user_code) ? "" : "none";
+  acctEl(acct,"code").style.display = (isPending && s.user_code) ? "" : "none";
+  const statusEl = acctEl(acct,"status"), btn = acctEl(acct,"btn");
   if(s.signed_in){
-    $("#emailAuthStatus").innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — emails send as this mailbox.`;
-    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "Re-sign in";
+    statusEl.innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — ${esc(s.label||"")}`;
+    btn.style.display = ""; btn.textContent = "Re-sign in";
   } else if(isPending){
-    $("#emailAuthStatus").textContent = "Complete the sign-in below:";
-    $("#emailSignInBtn").style.display = "none";
-    if(s.user_code){ $("#emailAuthUserCode").textContent = s.user_code;
-      if(s.verification_uri) $("#emailAuthUri").href = s.verification_uri; }
+    statusEl.textContent = "Complete the sign-in below:";
+    btn.style.display = "none";
+    if(s.user_code){ acctEl(acct,"usercode").textContent = s.user_code;
+      if(s.verification_uri) acctEl(acct,"uri").href = s.verification_uri; }
   } else {
-    $("#emailAuthStatus").innerHTML = s.error
-      ? `⚠ ${esc(s.error)}` : "Not signed in — sending requires a one-time sign-in.";
-    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
+    statusEl.innerHTML = s.error
+      ? `⚠ ${esc(s.error)}` : `Not signed in — ${esc(s.label||"this account")} requires a one-time sign-in.`;
+    btn.style.display = ""; btn.textContent = "🔑 Sign in";
   }
 }
-async function refreshEmailAuth(){
-  try { renderEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
+function renderAllEmailAuth(all){
+  for(const acct of EMAIL_ACCTS) if(all[acct]) renderEmailAuth(acct, all[acct]);
 }
-async function startEmailLogin(){
-  $("#emailSignInBtn").disabled = true;
+async function refreshEmailAuth(){
+  try { renderAllEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
+}
+async function startEmailLogin(acct){
+  const btn = acctEl(acct,"btn"); btn.disabled = true;
   try {
-    renderEmailAuth(await (await fetch("/api/email/login-start", {method:"POST"})).json());
+    renderEmailAuth(acct, await (await fetch("/api/email/login-start?account="+acct, {method:"POST"})).json());
     clearInterval(emailAuthPoll);
     emailAuthPoll = setInterval(async () => {
-      const s = await (await fetch("/api/email/login-status")).json();
-      renderEmailAuth(s);
+      const all = await (await fetch("/api/email/login-status")).json();
+      renderAllEmailAuth(all);
+      const s = all[acct] || {};
       if(s.signed_in || s.status === "error"){
         clearInterval(emailAuthPoll); emailAuthPoll = null;
-        if(s.signed_in) toast("Signed in to email as " + s.account + ".", 3000);
+        if(s.signed_in) toast("Signed in as " + s.account + ".", 3000);
       }
     }, 2500);
   } catch(e){ toast("Could not start sign-in: "+e, 6000); }
-  finally { $("#emailSignInBtn").disabled = false; }
+  finally { btn.disabled = false; }
 }
 
 /* ---- init ---- */

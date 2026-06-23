@@ -1,10 +1,13 @@
 """Send the interview/exam email via Microsoft Graph using DELEGATED auth
 (device-code flow).
 
-The user signs in ONCE (via the web UI's "Sign in to email" button): they open
-microsoft.com/devicelogin, enter a code, and log in as nattapong_yuw@. The token —
-together with a refresh token — is cached to disk, so later sends are silent and go
-out AS the signed-in user (/me/sendMail).
+Two delegated apps are supported (see GraphMailer): the "sender" (nattapong_yuw,
+used for the Sent-Exam send) and the "recruiter" (Recruite, used for the
+shortlist/interview/evaluation/offer drafts). Each signs in ONCE (via the web UI's
+"Sign in" buttons): the user opens microsoft.com/devicelogin, enters a code, and
+logs in. The token — together with a refresh token — is cached to disk (a separate
+cache file per account), so later operations are silent and go out AS the signed-in
+user (/me/...).
 
 App registration needs DELEGATED Mail.Send + User.Read, and
 Authentication → "Allow public client flows" = Yes. No client secret is used.
@@ -37,7 +40,11 @@ FILES_SCOPES = ["Files.ReadWrite", "User.Read"]
 CALENDAR_SCOPES = ["Calendars.ReadWrite", "User.Read"]   # create the interview event
 # Union, requested at sign-in so one consent covers everything the app is granted.
 SCOPES = ["Mail.ReadWrite", "Mail.Send", "Files.ReadWrite", "Calendars.ReadWrite", "User.Read"]
-CACHE_PATH = Path(__file__).resolve().parent / ".graph_token_cache.json"
+_ROOT = Path(__file__).resolve().parent
+CACHE_PATH = _ROOT / ".graph_token_cache.json"
+# Second delegated app ("Recruite") caches its token separately so the two
+# signed-in accounts never clobber each other.
+RECRUITER_CACHE_PATH = _ROOT / ".graph_token_cache_recruiter.json"
 
 
 class MailerError(RuntimeError):
@@ -45,30 +52,46 @@ class MailerError(RuntimeError):
 
 
 class GraphMailer:
-    def __init__(self, cfg: Config) -> None:
+    """Talks to Graph as one of two delegated accounts:
+
+    - account="sender"    (default) → "nattapong_yuw" app; sends the Sent-Exam mail.
+    - account="recruiter"           → "Recruite" app; creates the drafts/events for
+                                       the shortlist, interview, evaluation and offer stages.
+
+    Each account has its own client/tenant and its own on-disk token cache, so each
+    signs in once independently.
+    """
+
+    def __init__(self, cfg: Config, account: str = "sender") -> None:
         self.cfg = cfg
-        missing = [k for k, v in {
-            "GRAPH_TENANT_ID": cfg.graph_tenant_id,
-            "GRAPH_CLIENT_ID": cfg.graph_client_id,
-        }.items() if not v]
+        self.account = account
+        if account == "recruiter":
+            client_id, tenant_id = cfg.graph_recruiter_client_id, cfg.graph_recruiter_tenant_id
+            self._cache_path = RECRUITER_CACHE_PATH
+            keys = {"GRAPH_RECRUITER_TENANT_ID": tenant_id, "GRAPH_RECRUITER_CLIENT_ID": client_id}
+        else:
+            client_id, tenant_id = cfg.graph_client_id, cfg.graph_tenant_id
+            self._cache_path = CACHE_PATH
+            keys = {"GRAPH_TENANT_ID": tenant_id, "GRAPH_CLIENT_ID": client_id}
+        missing = [k for k, v in keys.items() if not v]
         if missing:
             raise MailerError("Missing Graph config in .env: " + ", ".join(missing))
         self._cache = msal.SerializableTokenCache()
-        if CACHE_PATH.exists():
+        if self._cache_path.exists():
             try:
-                self._cache.deserialize(CACHE_PATH.read_text(encoding="utf-8"))
+                self._cache.deserialize(self._cache_path.read_text(encoding="utf-8"))
             except OSError:
                 pass
         self._app = msal.PublicClientApplication(
-            client_id=cfg.graph_client_id,
-            authority=f"https://login.microsoftonline.com/{cfg.graph_tenant_id}",
+            client_id=client_id,
+            authority=f"https://login.microsoftonline.com/{tenant_id}",
             token_cache=self._cache,
         )
 
     def _save_cache(self) -> None:
         if self._cache.has_state_changed:
             try:
-                CACHE_PATH.write_text(self._cache.serialize(), encoding="utf-8")
+                self._cache_path.write_text(self._cache.serialize(), encoding="utf-8")
             except OSError as exc:  # noqa: BLE001
                 log.warning("Could not save Graph token cache: %s", exc)
 
@@ -128,9 +151,11 @@ class GraphMailer:
         return out
 
     def send(self, to_email: str, subject: str, body: str,
-             attachment_paths: list[str] | None = None, is_html: bool = False) -> None:
+             attachment_paths: list[str] | None = None, is_html: bool = False,
+             cc_emails: list[str] | None = None) -> None:
         """Send one email AS the signed-in user (/me/sendMail) with a text/HTML body
-        and optional file attachments. Raises MailerError on any failure."""
+        and optional file attachments. Optional `cc_emails` are added as CC
+        recipients. Raises MailerError on any failure."""
         if not to_email:
             raise MailerError("Candidate has no email address.")
         token = self._silent_token(MAIL_SCOPES)
@@ -139,6 +164,9 @@ class GraphMailer:
             "body": {"contentType": "HTML" if is_html else "Text", "content": body},
             "toRecipients": [{"emailAddress": {"address": to_email}}],
         }
+        cc = [{"emailAddress": {"address": a}} for a in (cc_emails or []) if a]
+        if cc:
+            message["ccRecipients"] = cc
         attachments = self._attachments(attachment_paths)
         if attachments:
             message["attachments"] = attachments

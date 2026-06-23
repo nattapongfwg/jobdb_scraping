@@ -1,6 +1,6 @@
 # Secrets & local config
 .env
-.graph_token_cache.json
+.graph_token_cache*.json
 email_kit/email_template.json
 
 # Playwright session / browser state

@@ -97,6 +97,11 @@ class Config:
     graph_tenant_id: str
     graph_client_id: str
     graph_client_secret: str
+    # Second delegated app ("Recruite") — used for the DRAFT stages (shortlist,
+    # interview, evaluation, offer). The first app ("nattapong_yuw") still sends
+    # the Sent-Exam mail. Each signs in once into its own token cache.
+    graph_recruiter_tenant_id: str
+    graph_recruiter_client_id: str
     graph_sender: str       # mailbox the exam is sent from (e.g. HumanResources@...)
     exam_subject: str
     exam_body: str          # may contain {name}
@@ -161,7 +166,7 @@ def load_config() -> Config:
     # Override per-machine via ONEDRIVE_BASE in .env (the default is one user's path).
     onedrive_base = (os.getenv("ONEDRIVE_BASE", "").strip()
                      or r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
-                        r"freewillsolutions.com\Candidate_JobDB_Scraping")
+                        r"freewillsolutions.com\Recruit's files - Recruitment\Recruite_Scraping")
     # Shortlist resume folders go in OneDrive (so the folder gets a shareable link).
     shortlist_env = os.getenv("SHORTLIST_DIR", "").strip()
     shortlist_dir = Path(shortlist_env) if shortlist_env else Path(onedrive_base) / "Shortlists"
@@ -198,6 +203,12 @@ def load_config() -> Config:
         graph_tenant_id=os.getenv("GRAPH_TENANT_ID", "").strip(),
         graph_client_id=os.getenv("GRAPH_CLIENT_ID", "").strip(),
         graph_client_secret=os.getenv("GRAPH_CLIENT_SECRET", "").strip(),
+        # "Recruite" delegated app. Client/tenant IDs are not secrets, so the
+        # known values are baked in as defaults but stay overridable via .env.
+        graph_recruiter_tenant_id=(os.getenv("GRAPH_RECRUITER_TENANT_ID", "").strip()
+                                   or "3e85c516-2459-4d8d-9d02-50f74400bfd2"),
+        graph_recruiter_client_id=(os.getenv("GRAPH_RECRUITER_CLIENT_ID", "").strip()
+                                   or "f53de24a-7865-41fe-b068-7f31b330ab13"),
         graph_sender=os.getenv("GRAPH_SENDER", "").strip(),
         exam_subject=os.getenv("EXAM_SUBJECT", "Pre-employment exam invitation"),
         # .env can't hold real newlines, so allow literal "\n" in EXAM_BODY.

@@ -9,8 +9,12 @@ can be shared; its NAME goes into the email's "Link document:" line.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
+import stat
+import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -75,12 +79,24 @@ def candidate_folder(name: str, used: set) -> str:
     return sub
 
 
+def reply_folder_name(candidate_name: str, email_name: str = "") -> str:
+    """Folder name for a candidate's Email_Reply_Exam store:
+    `<firstname>_<lastname>_<email_name>` — the candidate's name with spaces turned
+    into underscores, suffixed with the sending mailbox's local-part (`email_name`,
+    e.g. 'nattapong_yuw'). When `email_name` is empty, just the underscored name."""
+    base = _safe_folder(candidate_name)
+    email_name = (email_name or "").strip()
+    return f"{base}_{_safe_folder(email_name)}" if email_name else base
+
+
 def build_reply_folder(base_dir: str | Path, candidate_name: str,
-                       resume_path: str | None, attachments: list[dict]) -> tuple[str, int]:
-    """Create <base_dir>/<candidate name>/ and save the candidate's résumé plus the
-    files they replied with. `attachments`: list of {name, bytes}. Returns
+                       resume_path: str | None, attachments: list[dict],
+                       email_name: str = "") -> tuple[str, int]:
+    """Create <base_dir>/<firstname_lastname_emailname>/ and save the candidate's
+    résumé plus the files they replied with. `attachments`: list of {name, bytes}.
+    `email_name` is the sender mailbox's local-part (see reply_folder_name). Returns
     (folder_path, saved_count). Used for the Email_Reply_Exam store."""
-    name = _safe_file(candidate_name) or "candidate"
+    name = reply_folder_name(candidate_name, email_name)
     folder = Path(base_dir) / name
     folder.mkdir(parents=True, exist_ok=True)
     saved, used = 0, set()
@@ -116,29 +132,64 @@ def subfolder_name(name: str) -> str:
     return _safe_file(name) or "candidate"
 
 
-def candidate_dir(reply_base: str | Path, name: str) -> Path | None:
-    """The candidate's Email_Reply_Exam folder, or None if it doesn't exist."""
-    d = Path(reply_base) / subfolder_name(name)
+def candidate_dir(reply_base: str | Path, name: str, email_name: str = "") -> Path | None:
+    """The candidate's Email_Reply_Exam folder (named firstname_lastname_emailname),
+    or None if it doesn't exist. `email_name` must match what build_reply_folder used."""
+    d = Path(reply_base) / reply_folder_name(name, email_name)
     return d if d.is_dir() else None
 
 
-def remove_dir(path: str | Path) -> bool:
-    """Delete a directory tree (best-effort). Used after a cloud upload = 'move'."""
+def _rmtree_retry(func, p, _exc):
+    """rmtree error hook: clear a read-only flag (common on Windows) and retry the
+    failed op once. Shared by both the onexc (3.12+) and onerror (<3.12) signatures."""
     try:
-        shutil.rmtree(path)
+        os.chmod(p, stat.S_IWRITE)
+        func(p)
+    except OSError:
+        pass   # leave it; the caller's retry loop / final rmdir handles the rest
+
+
+def remove_dir(path: str | Path) -> bool:
+    """Delete a directory tree. Used after a cloud upload = 'move'. Returns True
+    once the tree is gone.
+
+    Hardened for Windows + OneDrive: a folder that was just synced is often
+    briefly locked by the sync client, so rmtree deletes the files but then fails
+    to remove the now-empty directory — leaving an empty folder behind. We clear
+    read-only flags, retry a few times to ride out the transient lock, and finish
+    with a bare rmdir for the emptied-but-locked case."""
+    path = Path(path)
+    # rmtree's error hook was renamed onerror -> onexc in 3.12 (onerror removed in 3.14).
+    hook = {"onexc": _rmtree_retry} if sys.version_info >= (3, 12) else {"onerror": _rmtree_retry}
+    for attempt in range(5):
+        try:
+            shutil.rmtree(path, **hook)
+        except OSError as exc:
+            log.warning("rmtree %s failed (attempt %d/5): %s", path, attempt + 1, exc)
+        if not path.exists():
+            return True
+        time.sleep(0.4)
+    # The tree may now be empty but the directory itself still locked — try once more.
+    try:
+        os.rmdir(path)
+    except OSError:
+        pass
+    if not path.exists():
         return True
-    except OSError as exc:
-        log.warning("Could not remove %s: %s", path, exc)
-        return False
+    log.warning("Could not remove %s after retries; leaving it in place.", path)
+    return False
 
 
 def move_to_shortlist(shortlist_base: str | Path, reply_base: str | Path,
                       job_title: str, candidates: list[dict],
+                      email_name: str = "",
                       today: datetime | None = None) -> tuple[str, str, int]:
     """Create a fresh Shortlists/<job_title>_dd_mm_yyyy[_N] folder and MOVE each
-    selected candidate's Email_Reply_Exam/<name> folder (résumé + reply files) into
-    it. If a candidate has no reply folder, fall back to copying just their résumé.
-    `candidates`: list of {name, resume_path}. Returns (folder_name, folder_path, moved)."""
+    selected candidate's Email_Reply_Exam/<firstname_lastname_emailname> folder
+    (résumé + reply files) into it, renamed to the candidate's plain name. If a
+    candidate has no reply folder, fall back to copying just their résumé.
+    `email_name` must match what build_reply_folder used. `candidates`: list of
+    {name, resume_path}. Returns (folder_name, folder_path, moved)."""
     sl_base, rp_base = Path(shortlist_base), Path(reply_base)
     folder_name = unique_folder_name(folder_name_for(job_title, today),
                                      lambda n: (sl_base / n).exists())
@@ -154,7 +205,8 @@ def move_to_shortlist(shortlist_base: str | Path, reply_base: str | Path,
             i += 1
         used.add(dest_name.lower())
         dest = top / dest_name
-        srcfolder = rp_base / name          # the Email_Reply_Exam folder built at send time
+        # The Email_Reply_Exam folder built at send time (firstname_lastname_emailname).
+        srcfolder = rp_base / reply_folder_name(c.get("name") or "", email_name)
         try:
             if srcfolder.is_dir():
                 shutil.move(str(srcfolder), str(dest))   # whole folder (résumé + reply files)
