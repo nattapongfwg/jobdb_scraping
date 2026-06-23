@@ -12,7 +12,9 @@ storage_state.json
 __pycache__/
 *.pyc
 
-# Scraped output
+# Scraped / generated output (regenerated at runtime; may contain candidate PII)
 resume/
 debug/
 *.log
+Evaluation_Files/
+Report_Files/
