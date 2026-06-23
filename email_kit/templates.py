@@ -279,19 +279,48 @@ def _seed() -> list[dict]:
     return [_normalize({"name": "Interview / Exam", **DEFAULT_FIELDS})]
 
 
+def _read_doc() -> dict:
+    """The full JSON document ({"templates": [...], "settings": {...}}), or {} on a
+    missing/unreadable/non-dict file."""
+    if TEMPLATE_PATH.is_file():
+        try:
+            data = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def load_settings() -> dict:
+    """Per-machine Config-Email page settings stored alongside the templates
+    (e.g. {"user_prefix": "Na"}). Returns {} when none saved."""
+    s = _read_doc().get("settings")
+    return dict(s) if isinstance(s, dict) else {}
+
+
+def save_settings(settings: dict) -> dict:
+    """Merge `settings` into the stored settings object and persist, preserving the
+    templates. Returns the merged settings."""
+    doc = _read_doc()
+    merged = {**(doc.get("settings") if isinstance(doc.get("settings"), dict) else {}),
+              **(settings or {})}
+    out = {"templates": doc.get("templates") if isinstance(doc.get("templates"), list) else [],
+           "settings": merged}
+    TEMPLATE_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return merged
+
+
 def load_templates() -> list[dict]:
     """All templates (defaults seeded on first run; old single-template files migrated).
     Guarantees one group "shortlist" template exists. Seeding/migration is persisted
     immediately so ids stay stable across reads."""
     templates: list[dict] | None = None
-    if TEMPLATE_PATH.is_file():
-        try:
-            data = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = None
-        if isinstance(data, dict) and isinstance(data.get("templates"), list) and data["templates"]:
+    data = _read_doc() or None
+    if data is not None:
+        if isinstance(data.get("templates"), list) and data["templates"]:
             templates = [_normalize(t) for t in data["templates"]]
-        elif isinstance(data, dict) and ("subject" in data or "body" in data):
+        elif "subject" in data or "body" in data:
             # Migrate the old single flat template.
             templates = [_normalize({**data, "name": data.get("name") or "Interview / Exam"})]
     if templates is None:
@@ -310,9 +339,14 @@ def load_templates() -> list[dict]:
 
 
 def _write(templates: list[dict]) -> None:
+    """Persist templates, preserving the per-machine settings object (drops any stale
+    top-level keys from the old flat format)."""
+    out = {"templates": templates}
+    settings = _read_doc().get("settings")
+    if isinstance(settings, dict) and settings:
+        out["settings"] = settings
     TEMPLATE_PATH.write_text(
-        json.dumps({"templates": templates}, ensure_ascii=False, indent=2),
-        encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def save_template(data: dict) -> dict:

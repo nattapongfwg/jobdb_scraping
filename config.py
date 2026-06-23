@@ -93,15 +93,11 @@ class Config:
     delay_min: float
     delay_max: float
 
-    # Microsoft Graph (exam email) + exam content
+    # Microsoft Graph (exam email) + exam content. One shared delegated app
+    # ("Recruit" mailbox): sends the exam, creates drafts/events, detects replies.
     graph_tenant_id: str
     graph_client_id: str
     graph_client_secret: str
-    # Second delegated app ("Recruite") — used for the DRAFT stages (shortlist,
-    # interview, evaluation, offer). The first app ("nattapong_yuw") still sends
-    # the Sent-Exam mail. Each signs in once into its own token cache.
-    graph_recruiter_tenant_id: str
-    graph_recruiter_client_id: str
     graph_sender: str       # mailbox the exam is sent from (e.g. HumanResources@...)
     exam_subject: str
     exam_body: str          # may contain {name}
@@ -170,9 +166,12 @@ def load_config() -> Config:
     # Shortlist resume folders go in OneDrive (so the folder gets a shareable link).
     shortlist_env = os.getenv("SHORTLIST_DIR", "").strip()
     shortlist_dir = Path(shortlist_env) if shortlist_env else Path(onedrive_base) / "Shortlists"
-    # OneDrive-relative folder (under the drive root) for the Graph upload + share link.
+    # OneDrive-relative folder (under the SIGNED-IN Recruit account's drive root) for the
+    # Graph upload + share link. Must point at the SAME physical folder as shortlist_dir
+    # above — i.e. the shared "Recruitment/Recruite_Scraping/Shortlists" that teammates see
+    # locally as "Recruit's files - Recruitment\Recruite_Scraping\Shortlists".
     shortlist_onedrive_dir = (os.getenv("SHORTLIST_ONEDRIVE_DIR", "").strip()
-                              or "Candidate_JobDB_Scraping/Shortlists")
+                              or "Recruitment/Recruite_Scraping/Shortlists")
     # Local OneDrive folder where exam-reply files (résumé + reply attachments) are saved.
     reply_env = os.getenv("REPLY_EXAM_DIR", "").strip()
     reply_exam_dir = Path(reply_env) if reply_env else Path(onedrive_base) / "Email_Reply_Exam"
@@ -200,15 +199,13 @@ def load_config() -> Config:
         schema_sql=(PROJECT_ROOT / "schema.sql"),
         delay_min=_get_float("DELAY_MIN", 1.0),
         delay_max=_get_float("DELAY_MAX", 2.5),
-        graph_tenant_id=os.getenv("GRAPH_TENANT_ID", "").strip(),
-        graph_client_id=os.getenv("GRAPH_CLIENT_ID", "").strip(),
+        # Single shared "Recruit" delegated app. Client/tenant IDs are not secrets,
+        # so the known values are baked in as defaults but stay overridable via .env.
+        graph_tenant_id=(os.getenv("GRAPH_TENANT_ID", "").strip()
+                         or "3e85c516-2459-4d8d-9d02-50f74400bfd2"),
+        graph_client_id=(os.getenv("GRAPH_CLIENT_ID", "").strip()
+                         or "f53de24a-7865-41fe-b068-7f31b330ab13"),
         graph_client_secret=os.getenv("GRAPH_CLIENT_SECRET", "").strip(),
-        # "Recruite" delegated app. Client/tenant IDs are not secrets, so the
-        # known values are baked in as defaults but stay overridable via .env.
-        graph_recruiter_tenant_id=(os.getenv("GRAPH_RECRUITER_TENANT_ID", "").strip()
-                                   or "3e85c516-2459-4d8d-9d02-50f74400bfd2"),
-        graph_recruiter_client_id=(os.getenv("GRAPH_RECRUITER_CLIENT_ID", "").strip()
-                                   or "f53de24a-7865-41fe-b068-7f31b330ab13"),
         graph_sender=os.getenv("GRAPH_SENDER", "").strip(),
         exam_subject=os.getenv("EXAM_SUBJECT", "Pre-employment exam invitation"),
         # .env can't hold real newlines, so allow literal "\n" in EXAM_BODY.

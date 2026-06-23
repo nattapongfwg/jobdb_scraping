@@ -35,7 +35,13 @@ html, body { margin: 0; }
 body {
   font-family: system-ui, "Segoe UI", Arial, sans-serif;
   background-color: var(--bg);
-  background-image: none;
+  /* FMA homunculi backdrop, dimmed by a dark gradient so panels/text stay readable */
+  background-image: linear-gradient(rgba(10,14,24,.74), rgba(10,14,24,.82)),
+                    url('/static/background.jpg');
+  background-size: cover;
+  background-position: center top;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--ink);
   min-height: 100vh;
 }

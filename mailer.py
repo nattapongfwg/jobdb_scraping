@@ -1,23 +1,27 @@
 """Send the interview/exam email via Microsoft Graph using DELEGATED auth
 (device-code flow).
 
-Two delegated apps are supported (see GraphMailer): the "sender" (nattapong_yuw,
-used for the Sent-Exam send) and the "recruiter" (Recruite, used for the
-shortlist/interview/evaluation/offer drafts). Each signs in ONCE (via the web UI's
-"Sign in" buttons): the user opens microsoft.com/devicelogin, enters a code, and
-logs in. The token — together with a refresh token — is cached to disk (a separate
-cache file per account), so later operations are silent and go out AS the signed-in
-user (/me/...).
+One shared delegated app (the "Recruit" mailbox) is used for everything: sending the
+Sent-Exam mail, creating the shortlist/interview/evaluation/offer drafts/events, and
+detecting replies. The user signs in ONCE (via the web UI's "Sign in" button): they
+open microsoft.com/devicelogin, enter a code, and log in. The token — together with a
+refresh token — is cached to disk, so later operations are silent and go out AS the
+signed-in user (/me/...).
 
-App registration needs DELEGATED Mail.Send + User.Read, and
-Authentication → "Allow public client flows" = Yes. No client secret is used.
-.env: GRAPH_TENANT_ID, GRAPH_CLIENT_ID.
+To keep each teammate's work tidy in the shared mailbox, sent exams and drafts can be
+filed into per-teammate mail folders (e.g. "Na_Sent_Exam", "Na_Drafts") via the
+`sent_folder`/`folder` arguments below.
+
+App registration needs DELEGATED Mail.ReadWrite + Mail.Send + Calendars.ReadWrite +
+Files.ReadWrite + User.Read, and Authentication → "Allow public client flows" = Yes.
+No client secret is used. .env: GRAPH_TENANT_ID, GRAPH_CLIENT_ID.
 """
 from __future__ import annotations
 
 import base64
 import logging
 import mimetypes
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -42,9 +46,6 @@ CALENDAR_SCOPES = ["Calendars.ReadWrite", "User.Read"]   # create the interview 
 SCOPES = ["Mail.ReadWrite", "Mail.Send", "Files.ReadWrite", "Calendars.ReadWrite", "User.Read"]
 _ROOT = Path(__file__).resolve().parent
 CACHE_PATH = _ROOT / ".graph_token_cache.json"
-# Second delegated app ("Recruite") caches its token separately so the two
-# signed-in accounts never clobber each other.
-RECRUITER_CACHE_PATH = _ROOT / ".graph_token_cache_recruiter.json"
 
 
 class MailerError(RuntimeError):
@@ -52,27 +53,15 @@ class MailerError(RuntimeError):
 
 
 class GraphMailer:
-    """Talks to Graph as one of two delegated accounts:
+    """Talks to Graph as the single shared delegated account (the "Recruit" mailbox),
+    signed in once via device code. Used for sending the exam, creating drafts/events,
+    and detecting replies — all AS the signed-in user (/me/...)."""
 
-    - account="sender"    (default) → "nattapong_yuw" app; sends the Sent-Exam mail.
-    - account="recruiter"           → "Recruite" app; creates the drafts/events for
-                                       the shortlist, interview, evaluation and offer stages.
-
-    Each account has its own client/tenant and its own on-disk token cache, so each
-    signs in once independently.
-    """
-
-    def __init__(self, cfg: Config, account: str = "sender") -> None:
+    def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self.account = account
-        if account == "recruiter":
-            client_id, tenant_id = cfg.graph_recruiter_client_id, cfg.graph_recruiter_tenant_id
-            self._cache_path = RECRUITER_CACHE_PATH
-            keys = {"GRAPH_RECRUITER_TENANT_ID": tenant_id, "GRAPH_RECRUITER_CLIENT_ID": client_id}
-        else:
-            client_id, tenant_id = cfg.graph_client_id, cfg.graph_tenant_id
-            self._cache_path = CACHE_PATH
-            keys = {"GRAPH_TENANT_ID": tenant_id, "GRAPH_CLIENT_ID": client_id}
+        client_id, tenant_id = cfg.graph_client_id, cfg.graph_tenant_id
+        self._cache_path = CACHE_PATH
+        keys = {"GRAPH_TENANT_ID": tenant_id, "GRAPH_CLIENT_ID": client_id}
         missing = [k for k, v in keys.items() if not v]
         if missing:
             raise MailerError("Missing Graph config in .env: " + ", ".join(missing))
@@ -150,12 +139,95 @@ class GraphMailer:
             })
         return out
 
+    # -- mail folders (per-teammate organisation of the shared mailbox) ---------
+    def _ensure_mail_folder(self, name: str, token: str) -> str:
+        """Return the id of the top-level mail folder `name`, creating it if absent.
+        Used to keep each teammate's sent exams/drafts in their own folder inside the
+        shared mailbox. Raises MailerError on a Graph error."""
+        hdr = {"Authorization": f"Bearer {token}"}
+        safe = name.replace("'", "''")                 # OData string-literal escaping
+        resp = requests.get(
+            f"{GRAPH}/me/mailFolders",
+            headers=hdr,
+            params={"$filter": f"displayName eq '{safe}'", "$select": "id", "$top": "1"},
+            timeout=30)
+        if resp.status_code == 200:
+            items = resp.json().get("value", [])
+            if items:
+                return items[0]["id"]
+        elif resp.status_code != 404:
+            raise MailerError(f"Graph mailFolder lookup failed ({resp.status_code}): {resp.text[:200]}")
+        # Not found → create it.
+        resp = requests.post(
+            f"{GRAPH}/me/mailFolders",
+            headers={**hdr, "Content-Type": "application/json"},
+            json={"displayName": name}, timeout=30)
+        if resp.status_code not in (200, 201):
+            raise MailerError(f"Graph create-folder failed ({resp.status_code}): {resp.text[:200]}")
+        return resp.json()["id"]
+
+    def _move_sent_to_folder(self, subject: str, to_email: str, folder_name: str,
+                             token: str) -> bool:
+        """Best-effort: move the just-sent message from Sent Items into `folder_name`
+        (created if needed). Matches the newest Sent-Items message by subject + the
+        recipient. Returns True if moved; False if it couldn't be located (the mail is
+        already sent and simply stays in Sent Items). Never raises."""
+        try:
+            fid = self._ensure_mail_folder(folder_name, token)
+            hdr = {"Authorization": f"Bearer {token}"}
+            safe = (subject or "").replace("'", "''")
+            target = (to_email or "").strip().lower()
+            # /me/sendMail returns 202 and writes to Sent Items ASYNCHRONOUSLY, so the
+            # message often isn't there the instant send() returns. Poll a few times.
+            # No $orderby: Graph rejects orderby combined with a $filter here
+            # ("InefficientFilter"); pick the newest match client-side.
+            msg_id = None
+            for attempt in range(8):
+                resp = requests.get(
+                    f"{GRAPH}/me/mailFolders/sentitems/messages",
+                    headers=hdr,
+                    params={"$filter": f"subject eq '{safe}'",
+                            "$select": "id,toRecipients,sentDateTime",
+                            "$top": "25"},
+                    timeout=30)
+                if resp.status_code != 200:
+                    log.warning("Sent-Items lookup failed (%s): %s", resp.status_code, resp.text[:200])
+                    return False
+                candidates = []
+                for m in resp.json().get("value", []):
+                    addrs = [(r.get("emailAddress", {}).get("address") or "").lower()
+                             for r in m.get("toRecipients", [])]
+                    if not target or target in addrs:
+                        candidates.append(m)
+                if candidates:
+                    msg_id = max(candidates, key=lambda m: m.get("sentDateTime", "")).get("id")
+                    break
+                time.sleep(1.0)            # give Sent Items a moment to populate
+            if not msg_id:
+                log.warning("Sent message not found in Sent Items yet; left it there "
+                            "(folder=%s, subject=%r)", folder_name, subject)
+                return False
+            resp = requests.post(
+                f"{GRAPH}/me/messages/{msg_id}/move",
+                headers={**hdr, "Content-Type": "application/json"},
+                json={"destinationId": fid}, timeout=30)
+            if resp.status_code not in (200, 201):
+                log.warning("Move to %s failed (%s): %s", folder_name, resp.status_code, resp.text[:200])
+                return False
+            return True
+        except (MailerError, requests.RequestException) as exc:  # noqa: BLE001
+            log.warning("Could not file sent mail into %s: %s", folder_name, exc)
+            return False
+
+    # -- sending ---------------------------------------------------------------
     def send(self, to_email: str, subject: str, body: str,
              attachment_paths: list[str] | None = None, is_html: bool = False,
-             cc_emails: list[str] | None = None) -> None:
+             cc_emails: list[str] | None = None, sent_folder: str | None = None) -> None:
         """Send one email AS the signed-in user (/me/sendMail) with a text/HTML body
-        and optional file attachments. Optional `cc_emails` are added as CC
-        recipients. Raises MailerError on any failure."""
+        and optional file attachments. Optional `cc_emails` are added as CC recipients.
+        If `sent_folder` is given, the sent message is then moved (best-effort) from
+        Sent Items into that mail folder (created if needed). Raises MailerError only
+        on send failure — the folder move never blocks a successful send."""
         if not to_email:
             raise MailerError("Candidate has no email address.")
         token = self._silent_token(MAIL_SCOPES)
@@ -181,15 +253,21 @@ class GraphMailer:
         if resp.status_code not in (200, 202):
             raise MailerError(f"Graph sendMail failed ({resp.status_code}): {resp.text[:300]}")
         log.info("Email sent to %s", to_email)
+        if sent_folder:
+            if self._move_sent_to_folder(subject, to_email, sent_folder, token):
+                log.info("Filed sent mail into %s", sent_folder)
 
     def create_draft(self, subject: str, body: str,
                      to_recipients: list[str] | None = None,
                      is_html: bool = False,
-                     attachment_paths: list[str] | None = None) -> None:
-        """Create an email DRAFT in the signed-in user's mailbox (POST /me/messages),
-        so HR can review/edit and send it from Outlook. Optional file attachments are
-        embedded inline (fine for the small evaluation form ~200 KB; Graph allows up to
-        ~3 MB this way). Raises MailerError on failure."""
+                     attachment_paths: list[str] | None = None,
+                     folder: str | None = None) -> None:
+        """Create an email DRAFT in the signed-in user's mailbox so HR can review/edit
+        and send it from Outlook. When `folder` is given the draft is created inside
+        that mail folder (created if needed: POST /me/mailFolders/{id}/messages),
+        otherwise in the default Drafts (POST /me/messages). Optional file attachments
+        are embedded inline (fine for the small evaluation form ~200 KB; Graph allows
+        up to ~3 MB this way). Raises MailerError on failure."""
         token = self._silent_token(MAIL_SCOPES)
         message: dict = {
             "subject": subject,
@@ -201,15 +279,21 @@ class GraphMailer:
         attachments = self._attachments(attachment_paths)
         if attachments:
             message["attachments"] = attachments
+        if folder:
+            fid = self._ensure_mail_folder(folder, token)
+            url = f"{GRAPH}/me/mailFolders/{fid}/messages"
+        else:
+            url = f"{GRAPH}/me/messages"
         resp = requests.post(
-            f"{GRAPH}/me/messages",
+            url,
             headers={"Authorization": f"Bearer {token}",
                      "Content-Type": "application/json"},
             json=message, timeout=30,
         )
         if resp.status_code not in (200, 201):
             raise MailerError(f"Graph create-draft failed ({resp.status_code}): {resp.text[:300]}")
-        log.info("Draft created in mailbox (%s)", self.signed_in_account() or "unknown")
+        log.info("Draft created in mailbox (%s)%s", self.signed_in_account() or "unknown",
+                 f" → {folder}" if folder else "")
 
     # -- calendar (interview event draft) -------------------------------------
     def create_event(self, subject: str, body_html: str, start: str, end: str,

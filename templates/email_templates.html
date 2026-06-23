@@ -81,29 +81,30 @@
     <a class="btn secondary" href="/">← Back to Postings</a>
   </div>
 
-  <!-- Sign-in status — two delegated accounts, each signs in once -->
+  <!-- Sign-in status — single shared Recruit mailbox -->
   <div class="auth-box" id="emailAuthBox">
-    <div style="font-weight:600;margin-bottom:8px">Email sign-in <span class="muted" style="font-weight:400;font-size:12px">(one-time, per account)</span></div>
-
-    <div class="auth-acct" data-acct="sender" style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,.12)">
-      <div data-role="status" class="muted" style="font-size:13px">Checking sign-in…</div>
-      <button class="btn secondary" data-role="btn" onclick="startEmailLogin('sender')"
-              style="display:none;margin-top:8px">🔑 Sign in — Sender (Sent Exam)</button>
-      <div data-role="code" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
-        1. Open <a data-role="uri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
-        2. Enter code: <b data-role="usercode" style="font-size:16px;letter-spacing:1px"></b><br>
-        3. Sign in as the SENDER mailbox (nattapong_yuw) — <span class="muted">waiting for you to finish…</span>
-      </div>
+    <div id="emailAuthStatus" class="muted" style="font-size:13px">Checking sign-in…</div>
+    <button class="btn secondary" id="emailSignInBtn" onclick="startEmailLogin()"
+            style="display:none;margin-top:8px">🔑 Sign in to email</button>
+    <div id="emailAuthCode" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
+      1. Open <a id="emailAuthUri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
+      2. Enter code: <b id="emailAuthUserCode" style="font-size:16px;letter-spacing:1px"></b><br>
+      3. Sign in as the shared <b>Recruit</b> mailbox — <span class="muted">waiting for you to finish…</span>
     </div>
 
-    <div class="auth-acct" data-acct="recruiter">
-      <div data-role="status" class="muted" style="font-size:13px">Checking sign-in…</div>
-      <button class="btn secondary" data-role="btn" onclick="startEmailLogin('recruiter')"
-              style="display:none;margin-top:8px">🔑 Sign in — Recruiter (Shortlist / Interview / Evaluation / Offer)</button>
-      <div data-role="code" style="display:none;margin-top:10px;font-size:13px;line-height:1.7">
-        1. Open <a data-role="uri" href="https://microsoft.com/devicelogin" target="_blank" rel="noopener">microsoft.com/devicelogin</a><br>
-        2. Enter code: <b data-role="usercode" style="font-size:16px;letter-spacing:1px"></b><br>
-        3. Sign in as the RECRUITER mailbox (Recruite) — <span class="muted">waiting for you to finish…</span>
+    <!-- Per-teammate folder prefix: files this person's sent exams / drafts into
+         <prefix>_Sent_Exam and <prefix>_Drafts inside the shared mailbox. -->
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.12)">
+      <label style="font-size:13px;display:block;margin-bottom:4px">
+        Your name (folder prefix)
+        <span class="muted" style="font-size:12px">— your sent exams &amp; drafts go into
+          <b id="prefixPreview">Na</b>_Sent_Exam / <b id="prefixPreview2">Na</b>_Drafts</span>
+      </label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="userPrefix" placeholder="e.g. Na" autocomplete="off"
+               style="max-width:200px" oninput="updatePrefixPreview()">
+        <button class="btn secondary" id="savePrefixBtn" onclick="saveUserPrefix()">Save</button>
+        <span id="prefixSaved" class="muted" style="font-size:12px"></span>
       </div>
     </div>
   </div>
@@ -410,51 +411,71 @@ async function deleteTemplate(){
   } catch(e){ toast("Could not delete: "+e, 6000); }
 }
 
-/* ---- email sign-in (two delegated device-code accounts) ---- */
+/* ---- email sign-in (single shared Recruit mailbox, device-code) ---- */
 let emailAuthPoll = null;
-const EMAIL_ACCTS = ["sender", "recruiter"];
-function acctEl(acct, role){
-  return document.querySelector(`.auth-acct[data-acct="${acct}"] [data-role="${role}"]`);
-}
-function renderEmailAuth(acct, s){
+function renderEmailAuth(s){
   const isPending = s.status === "pending" && !s.signed_in;
-  acctEl(acct,"code").style.display = (isPending && s.user_code) ? "" : "none";
-  const statusEl = acctEl(acct,"status"), btn = acctEl(acct,"btn");
+  $("#emailAuthCode").style.display = (isPending && s.user_code) ? "" : "none";
   if(s.signed_in){
-    statusEl.innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — ${esc(s.label||"")}`;
-    btn.style.display = ""; btn.textContent = "Re-sign in";
+    $("#emailAuthStatus").innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — the shared Recruit mailbox.`;
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "Re-sign in";
   } else if(isPending){
-    statusEl.textContent = "Complete the sign-in below:";
-    btn.style.display = "none";
-    if(s.user_code){ acctEl(acct,"usercode").textContent = s.user_code;
-      if(s.verification_uri) acctEl(acct,"uri").href = s.verification_uri; }
+    $("#emailAuthStatus").textContent = "Complete the sign-in below:";
+    $("#emailSignInBtn").style.display = "none";
+    if(s.user_code){ $("#emailAuthUserCode").textContent = s.user_code;
+      if(s.verification_uri) $("#emailAuthUri").href = s.verification_uri; }
   } else {
-    statusEl.innerHTML = s.error
-      ? `⚠ ${esc(s.error)}` : `Not signed in — ${esc(s.label||"this account")} requires a one-time sign-in.`;
-    btn.style.display = ""; btn.textContent = "🔑 Sign in";
+    $("#emailAuthStatus").innerHTML = s.error
+      ? `⚠ ${esc(s.error)}` : "Not signed in — sending requires a one-time sign-in.";
+    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
   }
 }
-function renderAllEmailAuth(all){
-  for(const acct of EMAIL_ACCTS) if(all[acct]) renderEmailAuth(acct, all[acct]);
-}
 async function refreshEmailAuth(){
-  try { renderAllEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
+  try { renderEmailAuth(await (await fetch("/api/email/login-status")).json()); } catch(e){}
 }
-async function startEmailLogin(acct){
-  const btn = acctEl(acct,"btn"); btn.disabled = true;
+async function startEmailLogin(){
+  $("#emailSignInBtn").disabled = true;
   try {
-    renderEmailAuth(acct, await (await fetch("/api/email/login-start?account="+acct, {method:"POST"})).json());
+    renderEmailAuth(await (await fetch("/api/email/login-start", {method:"POST"})).json());
     clearInterval(emailAuthPoll);
     emailAuthPoll = setInterval(async () => {
-      const all = await (await fetch("/api/email/login-status")).json();
-      renderAllEmailAuth(all);
-      const s = all[acct] || {};
+      const s = await (await fetch("/api/email/login-status")).json();
+      renderEmailAuth(s);
       if(s.signed_in || s.status === "error"){
         clearInterval(emailAuthPoll); emailAuthPoll = null;
-        if(s.signed_in) toast("Signed in as " + s.account + ".", 3000);
+        if(s.signed_in) toast("Signed in to email as " + s.account + ".", 3000);
       }
     }, 2500);
   } catch(e){ toast("Could not start sign-in: "+e, 6000); }
+  finally { $("#emailSignInBtn").disabled = false; }
+}
+
+/* ---- per-teammate folder prefix ---- */
+function updatePrefixPreview(){
+  const v = ($("#userPrefix").value || "").trim() || "Na";
+  $("#prefixPreview").textContent = v; $("#prefixPreview2").textContent = v;
+}
+async function loadUserPrefix(){
+  try {
+    const r = await (await fetch("/api/email/settings")).json();
+    $("#userPrefix").value = r.user_prefix || "";
+    updatePrefixPreview();
+  } catch(e){}
+}
+async function saveUserPrefix(){
+  const btn = $("#savePrefixBtn"); btn.disabled = true;
+  try {
+    const r = await (await fetch("/api/email/settings", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({user_prefix: ($("#userPrefix").value||"").trim()})})).json();
+    if(r.ok){
+      $("#userPrefix").value = r.user_prefix || ""; updatePrefixPreview();
+      $("#prefixSaved").textContent = r.user_prefix
+        ? `Saved — folders: ${r.user_prefix}_Sent_Exam, ${r.user_prefix}_Drafts`
+        : "Cleared — using the mailbox's default folders.";
+      toast("Folder prefix saved.", 2500);
+    } else { toast("Could not save prefix.", 5000); }
+  } catch(e){ toast("Could not save prefix: "+e, 6000); }
   finally { btn.disabled = false; }
 }
 
@@ -471,6 +492,7 @@ async function init(){
     updatePreview();
   } catch(e){ toast("Could not load templates: "+e, 6000); }
   refreshEmailAuth();
+  loadUserPrefix();
 }
 init();
 </script>
