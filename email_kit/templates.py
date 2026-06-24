@@ -27,7 +27,7 @@ import re
 import uuid
 from pathlib import Path
 
-from .signature import RECRUITER_FIRSTNAME, signature_html, signature_text
+from .signature import signature_html, signature_text
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 
@@ -55,7 +55,7 @@ To-do list before interview
 
 Deadline: {deadline}
 
-""" + signature_text()
+{signature}"""
 
 # Default team CC for exam emails. HR-editable per exam template on the config page;
 # this only backfills legacy exam templates that predate the CC field.
@@ -83,7 +83,7 @@ DEFAULT_SHORTLIST_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,san
 <p style="margin:0 0 20px"><b>Please see candidate for {job_title} at the attached link</b></p>
 {candidates}
 <p style="margin:14px 0 0"><b>Link document:</b> {link_document}</p>
-""" + signature_html(top_margin=26) + """
+{signature}
 </div>"""
 
 DEFAULT_SHORTLIST_FIELDS: dict = {
@@ -176,7 +176,7 @@ Interviewer : {interviewer}<br>
 </p>
 <hr style="border:none;border-top:1px solid #999;margin:14px 0">
 <p style="margin:0 0 14px">ช่องทางการสรรหา (Sourcing): JOB DB</p>
-""" + signature_html() + """
+{signature}
 </div>"""
 
 DEFAULT_OFFER_FIELDS: dict = {
@@ -386,8 +386,9 @@ def _render_with_fields(template: dict, base: dict, custom: dict) -> tuple[str, 
     can embed links/markup. The subject is always plain text. Returns (subject, body)."""
     is_html = bool(template.get("is_html"))
     e = _esc if is_html else (lambda s: s)
-    body_fields = {**{k: e(v) for k, v in base.items()}, **custom}
-    subj_fields = {**base, **custom}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    body_fields = {**{k: e(v) for k, v in base.items()}, "signature": sig, **custom}
+    subj_fields = {**base, "signature": sig, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
 
@@ -456,11 +457,14 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
 
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in ("job_title", "company", "candidates", "link_document")}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
     body_fields = {"job_title": job, "company": comp,
-                   "candidates": candidates_str, "link_document": link_str, **custom}
+                   "candidates": candidates_str, "link_document": link_str,
+                   "signature": sig, **custom}
     # Subject is always plain text (never HTML-escaped / no markup).
     subj_fields = {"job_title": job_title or "", "company": template.get("company", ""),
-                   "candidates": "", "link_document": link_text or link_url or "", **custom}
+                   "candidates": "", "link_document": link_text or link_url or "",
+                   "signature": sig, **custom}
 
     subject = _fill(template.get("subject", ""), subj_fields)
     raw_body = template.get("body", "")
@@ -481,7 +485,9 @@ def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, st
     e = _esc if is_html else (lambda s: s)
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in fields and k not in blocks}
-    body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks, **custom}
-    subj_fields = {**fields, **custom}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks,
+                   "signature": sig, **custom}
+    subj_fields = {**fields, "signature": sig, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
