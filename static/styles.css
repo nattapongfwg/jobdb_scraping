@@ -1,42 +1,43 @@
 /* ============================================================
-   Enjoy Work — HR recruitment board.  Fullmetal Alchemist theme.
-   Crimson + alchemical gold on warm charcoal-black, parchment text,
+   Enjoy Work — HR recruitment board.  Fullmetal Alchemist theme (LIGHT).
+   Crimson + alchemical bronze-gold on warm parchment, dark sepia text,
    transmutation-circle watermark. Shared by all pages.
    ============================================================ */
 :root {
-  --bg:        #000000;   /* pure black page background         */
-  --bg-2:      #15100e;   /* topbar / raised surfaces          */
-  --panel:     #1b1513;   /* card surface (dark leather)       */
-  --panel-2:   #271c18;   /* nested surface / hover            */
-  --line:      #3c2b22;   /* bronzed borders                   */
-  --line-soft: #281d18;
-  --ink:       #f4eadb;   /* parchment primary text            */
-  --ink-soft:  #cbb9a1;   /* aged-parchment secondary          */
-  --muted:     #9a8775;   /* muted bronze-grey                 */
-  --blue:      #c1272d;   /* PRIMARY = alchemist crimson       */
-  --blue-2:    #8e1b1b;   /* darker crimson (hover)            */
-  --blue-soft: #e35b54;   /* light crimson accents             */
-  --glow:      rgba(193,39,45,.38);
-  --gold:      #d4af37;   /* alchemical gold (secondary)       */
-  --gold-2:    #a9842a;   /* darker gold / bronze              */
-  --gold-soft: #eccd6b;   /* light gold                        */
-  --green:     #6fbf73;
-  --green-bg:  rgba(111,191,115,.15);
-  --amber:     #e6a23c;
-  --amber-bg:  rgba(230,162,60,.15);
-  --red:       #ef6b5e;
-  --red-bg:    rgba(239,107,94,.14);
+  --bg:        #efe7d6;   /* warm parchment page background     */
+  --bg-2:      #f7f1e3;   /* topbar / raised surfaces           */
+  --panel:     #fffdf7;   /* card surface (bright parchment)    */
+  --panel-2:   #f0e7d4;   /* nested surface / hover             */
+  --line:      #d8c7a6;   /* aged-parchment borders             */
+  --line-soft: #e6dac1;
+  --ink:       #2c2016;   /* dark sepia primary text            */
+  --ink-soft:  #5e4c39;   /* aged-sepia secondary               */
+  --muted:     #8a7459;   /* muted bronze-grey                  */
+  --blue:      #b21f25;   /* PRIMARY = alchemist crimson        */
+  --blue-2:    #8a191e;   /* darker crimson (hover)             */
+  --blue-soft: #b8322f;   /* crimson accent / links             */
+  --glow:      rgba(178,31,37,.30);
+  --gold:      #b88a1e;   /* alchemical gold (secondary)        */
+  --gold-2:    #856010;   /* deep bronze (also gold TEXT)       */
+  --gold-soft: #e0bd55;   /* bright gold (decorative gradients) */
+  --green:     #3f8a45;
+  --green-bg:  rgba(63,138,69,.14);
+  --amber:     #b06a14;
+  --amber-bg:  rgba(176,106,20,.14);
+  --red:       #c0392b;
+  --red-bg:    rgba(192,57,43,.12);
   --display:   "Cinzel", "Trajan Pro", Georgia, "Times New Roman", serif;
   --radius:    14px;
-  --shadow:    0 12px 34px rgba(0,0,0,.55);
+  --shadow:    0 12px 30px rgba(70,45,20,.15);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
   font-family: system-ui, "Segoe UI", Arial, sans-serif;
   background-color: var(--bg);
-  /* FMA homunculi backdrop, dimmed by a dark gradient so panels/text stay readable */
-  background-image: linear-gradient(rgba(10,14,24,.74), rgba(10,14,24,.82)),
+  /* FMA homunculi backdrop, washed by a light parchment gradient so it reads as a
+     faint texture and panels/text stay legible on the light theme */
+  background-image: linear-gradient(rgba(239,231,214,.88), rgba(239,231,214,.93)),
                     url('/static/background.jpg');
   background-size: cover;
   background-position: center top;
@@ -60,15 +61,15 @@ a { color: inherit; text-decoration: none; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 28px;
-  background: rgba(14,20,34,.85);
+  background: rgba(247,241,227,.85);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 0 rgba(212,175,55,.18), var(--shadow);
   position: sticky; top: 0; z-index: 50;
 }
 .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; letter-spacing: .6px;
-  font-family: var(--display); font-size: 17px; color: var(--gold-soft);
-  text-shadow: 0 1px 10px rgba(212,175,55,.25); }
+  font-family: var(--display); font-size: 17px; color: var(--gold-2);
+  text-shadow: none; }
 .brand .logo {
   width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
   border: 0; box-shadow: 0 0 16px rgba(212,175,55,.4);
@@ -79,14 +80,14 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid transparent;
 }
 .topbar nav a:hover { color: var(--ink); background: var(--panel-2); }
-.topbar nav a.active { color: #fff; background: var(--panel-2); border-color: var(--line); }
+.topbar nav a.active { color: var(--blue); background: var(--panel-2); border-color: var(--line); }
 
 /* ---- layout ---- */
 .container { max-width: 1080px; margin: 0 auto; padding: 28px 24px 80px; }
 .container.full { max-width: 1320px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .page-title { font-size: 27px; margin: 0; font-weight: 700; font-family: var(--display); letter-spacing: .4px; }
-.page-title .accent { color: var(--gold-soft); text-shadow: 0 1px 12px rgba(212,175,55,.3); }
+.page-title .accent { color: var(--gold-2); text-shadow: none; }
 .page-sub { color: var(--ink-soft); margin: 6px 0 0; font-size: 14px; }
 .back-link { display: inline-block; color: var(--blue-soft); font-size: 14px; margin-bottom: 14px; }
 .back-link:hover { text-decoration: underline; }
@@ -113,7 +114,7 @@ a { color: inherit; text-decoration: none; }
   background: none; border: 0; color: var(--ink-soft); font-size: 14px; font-weight: 600;
   padding: 10px 4px; margin-right: 14px; cursor: pointer; border-bottom: 2px solid transparent;
 }
-.tabs button.active { color: #fff; border-bottom-color: var(--blue); }
+.tabs button.active { color: var(--blue); border-bottom-color: var(--blue); }
 .tab-count {
   display: inline-block; min-width: 20px; padding: 1px 7px; margin-left: 6px;
   font-size: 12px; border-radius: 20px; background: var(--panel-2); color: var(--ink-soft);
@@ -173,9 +174,9 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid transparent; transition: background .12s, border-color .12s;
 }
 .stage-item:hover { background: var(--panel-2); }
-.stage-item.active { background: var(--panel-2); border-color: var(--blue); color: #fff; }
+.stage-item.active { background: var(--panel-2); border-color: var(--blue); color: var(--blue); }
 .stage-item .s-left { display: flex; align-items: center; gap: 10px; }
-.s-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: var(--bg-2); font-size: 12px; color: var(--gold-soft); }
+.s-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: var(--bg-2); font-size: 12px; color: var(--gold-2); }
 .stage-item.active .s-num { background: var(--blue); color: #fff; }
 .s-count { font-size: 12px; color: var(--muted); }
 .stage-item.drop-ok { border-color: var(--green); background: var(--green-bg); box-shadow: 0 0 0 2px var(--green-bg); }
@@ -211,7 +212,7 @@ a { color: inherit; text-decoration: none; }
   color: var(--ink-soft); padding: 2px 9px; border-radius: 999px;
   background: rgba(212,175,55,.08); border: 1px solid var(--gold-2); }
 .exp-field .cd-exp { width: 46px; text-align: center; padding: 2px 4px; border-radius: 6px;
-  border: 1px solid var(--gold-2); background: var(--bg-2); color: var(--gold-soft);
+  border: 1px solid var(--gold-2); background: var(--bg-2); color: var(--gold-2);
   font-weight: 700; font-size: 12px; }
 .exp-field .cd-exp:focus { outline: none; border-color: var(--gold); }
 .exp-field .cd-exp.saved { border-color: var(--green); background: var(--green-bg); }
@@ -245,7 +246,7 @@ a { color: inherit; text-decoration: none; }
 }
 .ai-summary .ai-tag {
   display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--gold-soft); margin-bottom: 5px;
+  text-transform: uppercase; color: var(--gold-2); margin-bottom: 5px;
 }
 .ai-summary p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
 .ai-summary .ai-head { display: flex; align-items: center; justify-content: space-between;
@@ -495,7 +496,7 @@ body::after  { width: 96vmin; height: 96vmin; margin: -48vmin 0 0 -48vmin;
 
 /* ---- molten-gold shimmer on title accents ---- */
 .page-title .accent {
-  background: linear-gradient(100deg, var(--gold-2) 0%, var(--gold-soft) 25%, #fff7e0 50%, var(--gold-soft) 75%, var(--gold-2) 100%);
+  background: linear-gradient(100deg, var(--gold-2) 0%, var(--gold) 50%, var(--gold-2) 100%);
   background-size: 220% auto;
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
@@ -727,7 +728,7 @@ body { animation: pageIn .4s ease both, bgBreathe 40s ease-in-out infinite alter
     animation: none !important;
   }
   .btn::after { display: none; }
-  .page-title .accent { -webkit-text-fill-color: var(--gold-soft); color: var(--gold-soft); }
+  .page-title .accent { -webkit-text-fill-color: var(--gold-2); color: var(--gold-2); }
 }
 
 /* ============================================================
@@ -736,11 +737,11 @@ body { animation: pageIn .4s ease both, bgBreathe 40s ease-in-out infinite alter
    Placed last so it wins the cascade. Borders/text unchanged.
    ============================================================ */
 :root {
-  --panel:   rgba(27, 21, 19, .82);   /* card surface — lightly see-through */
-  --panel-2: rgba(43, 31, 26, .85);   /* nested / hover                     */
-  --bg-2:    rgba(21, 16, 14, .82);   /* raised surfaces, inputs            */
+  --panel:   rgba(255, 253, 247, .82);  /* card surface — lightly see-through */
+  --panel-2: rgba(240, 231, 212, .85);  /* nested / hover                     */
+  --bg-2:    rgba(247, 241, 227, .82);  /* raised surfaces, inputs            */
 }
-.topbar { background: rgba(18, 13, 11, .85); }
+.topbar { background: rgba(247, 241, 227, .82); }
 
 /* frost the glass on every real surface (so text stays crisp over motion) */
 .topbar, .job-card, .cand-card, .card, .sidebar, .scrape-panel, .toolbar,
@@ -752,7 +753,7 @@ select, .toolbar input[type=text], .stage-search,
 }
 /* a faint top highlight gives the panels a real "glass pane" edge */
 .job-card, .cand-card, .card, .sidebar, .scrape-panel, .modal {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 8px 26px rgba(0, 0, 0, .4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), 0 8px 24px rgba(70, 45, 20, .14);
 }
 /* keep the live scrape log opaque/dark — it's a terminal, readability first */
 .scrape-log { background: rgba(10, 6, 5, .92); }
