@@ -5,6 +5,7 @@ script (running in WSL2) can reach a SQL Server instance on the Windows host.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -151,6 +154,41 @@ def _default_host() -> str:
     return _resolve_windows_host()
 
 
+# Stable subpath of the shared Recruit document library inside a teammate's OneDrive.
+# The library name is identical for every teammate; only the user-profile root differs,
+# so this is the part we can hard-code and the root is what we auto-detect.
+_RECRUIT_SUBPATH = r"Recruit's files - Recruitment\Recruite_Scraping"
+
+
+def _resolve_onedrive_base() -> str:
+    """Local path to the shared Recruit OneDrive folder for THIS machine.
+
+    Resolution order, so a fresh teammate install needs no manual path edit:
+      1) ONEDRIVE_BASE in .env — explicit per-machine override, always wins;
+      2) Windows' own OneDrive env var (OneDriveCommercial, else OneDrive) joined with
+         the stable shared-library subpath — resolves each teammate's own
+         ``C:\\Users\\<them>\\OneDrive - freewillsolutions.com\\Recruit's files …``
+         automatically (the user-profile segment differs per person);
+      3) a last-resort literal so nothing crashes when neither is available.
+    Logs a clear warning when the resolved folder doesn't exist, so a misconfigured
+    machine is obvious instead of silently writing candidate files to a dead path."""
+    env = os.getenv("ONEDRIVE_BASE", "").strip()
+    if env:
+        base = env
+    else:
+        od_root = os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive")
+        if od_root:
+            base = os.path.join(od_root, _RECRUIT_SUBPATH)
+        else:
+            base = (r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
+                    r"freewillsolutions.com\Recruit's files - Recruitment\Recruite_Scraping")
+    if not Path(base).exists():
+        log.warning("OneDrive base folder not found: %s\n"
+                    "  Set ONEDRIVE_BASE in .env to your synced "
+                    r"'Recruit's files - Recruitment\Recruite_Scraping' folder.", base)
+    return base
+
+
 def load_config() -> Config:
     db_host = os.getenv("DB_HOST", "").strip() or _default_host()
     # Default to Windows Authentication when no DB_USER is provided.
@@ -159,10 +197,8 @@ def load_config() -> Config:
     resume_env = os.getenv("RESUME_DIR", "").strip()
     resume_dir = Path(resume_env).resolve() if resume_env else (PROJECT_ROOT / "resume")
     # OneDrive base where the app stores candidate folders (synced, shareable).
-    # Override per-machine via ONEDRIVE_BASE in .env (the default is one user's path).
-    onedrive_base = (os.getenv("ONEDRIVE_BASE", "").strip()
-                     or r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
-                        r"freewillsolutions.com\Recruit's files - Recruitment\Recruite_Scraping")
+    # Auto-detected per-machine (each teammate's own OneDrive), .env ONEDRIVE_BASE wins.
+    onedrive_base = _resolve_onedrive_base()
     # Shortlist resume folders go in OneDrive (so the folder gets a shareable link).
     shortlist_env = os.getenv("SHORTLIST_DIR", "").strip()
     shortlist_dir = Path(shortlist_env) if shortlist_env else Path(onedrive_base) / "Shortlists"
