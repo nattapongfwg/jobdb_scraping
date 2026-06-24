@@ -80,6 +80,27 @@ Evaluation → Offered (moves are one-step, server-enforced).
   webapp already sets this when it spawns the scraper.
 - **All timestamps are Thailand time** (Asia/Bangkok) — handled in SQL via
   `AT TIME ZONE 'SE Asia Standard Time'`. Don't "fix" this to UTC.
+- **Shared mailbox, but per-machine database — "each teammate owns their candidates."**
+  Every teammate signs into the *same* "Recruit" Graph mailbox, so all sent exams (filed
+  into per-prefix `<Prefix>_Sent_Exam` folders), drafts, replies, calendar events, and
+  OneDrive shortlist folders land in one shared place. But the pipeline **database is local
+  to each machine** (`.env` `DB_HOST=localhost\SQLEXPRESS`, Windows Auth) — there is **no
+  cross-machine sync**. Everything the pipeline *knows* lives in that local DB: the candidate
+  rows (only on the machine that scraped that job), `stage` + entry dates, `is_sent_exam` /
+  `exam_sent_at`, the cached `reply_received` / `reply_at` / `reply_subject`, `ai_summary`,
+  name/email edits, and the local résumé + `Email_Reply_Exam/<name>/` files. Consequences
+  to keep in mind:
+  - **Reply detection can't be handed off.** Check Replies only runs when the **local** DB
+    has `exam_sent_at` for that candidate (else it returns `skipped`, `webapp.py:420`). The
+    reply itself is in the shared Inbox and *visible* to everyone, but only the machine that
+    **sent** the exam can detect/record it. So the person who sends an exam must also be the
+    one who checks its replies and drives the rest of that candidate's pipeline.
+  - **No shared visibility.** One teammate can't see another's pipeline state. If two people
+    scrape the **same job**, both could email the same candidate (two exams in the shared
+    mailbox, neither DB aware of the other). **Avoid two people working the same job_id.**
+  - This is by design for the **one-owner-per-candidate** workflow. If the team ever moves to
+    a shared pool (anyone handles anyone's candidates), the fix is to point every machine's
+    `DB_HOST` at one central SQL Server (needs TCP + firewall + auth setup) — not in scope today.
 
 ---
 
