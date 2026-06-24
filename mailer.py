@@ -175,19 +175,23 @@ class GraphMailer:
         try:
             fid = self._ensure_mail_folder(folder_name, token)
             hdr = {"Authorization": f"Bearer {token}"}
-            safe = (subject or "").replace("'", "''")
+            want_subj = (subject or "").strip().casefold()
             target = (to_email or "").strip().lower()
             # /me/sendMail returns 202 and writes to Sent Items ASYNCHRONOUSLY, so the
             # message often isn't there the instant send() returns. Poll a few times.
-            # No $orderby: Graph rejects orderby combined with a $filter here
-            # ("InefficientFilter"); pick the newest match client-side.
+            # Match subject + recipient CLIENT-SIDE rather than via a server `$filter
+            # subject eq '...'`: special characters in the subject (e.g. '#', '[', ']'
+            # in "[INS] C# .Net Developer …", or Thai text) make Graph's string-equality
+            # filter fail/return nothing, silently skipping the move. Listing the newest
+            # Sent Items with $orderby (allowed when not combined with $filter) and
+            # matching here is robust to any subject.
             msg_id = None
             for attempt in range(8):
                 resp = requests.get(
                     f"{GRAPH}/me/mailFolders/sentitems/messages",
                     headers=hdr,
-                    params={"$filter": f"subject eq '{safe}'",
-                            "$select": "id,toRecipients,sentDateTime",
+                    params={"$orderby": "sentDateTime desc",
+                            "$select": "id,subject,toRecipients,sentDateTime",
                             "$top": "25"},
                     timeout=30)
                 if resp.status_code != 200:
@@ -195,6 +199,8 @@ class GraphMailer:
                     return False
                 candidates = []
                 for m in resp.json().get("value", []):
+                    if (m.get("subject") or "").strip().casefold() != want_subj:
+                        continue
                     addrs = [(r.get("emailAddress", {}).get("address") or "").lower()
                              for r in m.get("toRecipients", [])]
                     if not target or target in addrs:
