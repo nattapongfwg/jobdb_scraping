@@ -430,9 +430,11 @@ def api_candidate_check_reply():
 
         # exam_sent_at is naive Thai (UTC+7) → UTC floor for the Graph filter.
         since_utc = (info["exam_sent_at"] - timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        prefix = _user_prefix()
         try:
             mailer = GraphMailer(cfg)
-            hit = mailer.check_reply(info["email"], since_utc)
+            hit = mailer.check_reply(info["email"], since_utc,
+                                     sent_folder=f"{prefix}_Sent_Exam" if prefix else None)
         except MailerError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 502
 

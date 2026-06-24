@@ -140,10 +140,9 @@ class GraphMailer:
         return out
 
     # -- mail folders (per-teammate organisation of the shared mailbox) ---------
-    def _ensure_mail_folder(self, name: str, token: str) -> str:
-        """Return the id of the top-level mail folder `name`, creating it if absent.
-        Used to keep each teammate's sent exams/drafts in their own folder inside the
-        shared mailbox. Raises MailerError on a Graph error."""
+    def _find_mail_folder_id(self, name: str, token: str) -> str | None:
+        """Return the id of the top-level mail folder `name`, or None if it doesn't
+        exist (lookup only — never creates it). Raises MailerError on a Graph error."""
         hdr = {"Authorization": f"Bearer {token}"}
         safe = name.replace("'", "''")                 # OData string-literal escaping
         resp = requests.get(
@@ -153,18 +152,60 @@ class GraphMailer:
             timeout=30)
         if resp.status_code == 200:
             items = resp.json().get("value", [])
-            if items:
-                return items[0]["id"]
-        elif resp.status_code != 404:
-            raise MailerError(f"Graph mailFolder lookup failed ({resp.status_code}): {resp.text[:200]}")
+            return items[0]["id"] if items else None
+        if resp.status_code == 404:
+            return None
+        raise MailerError(f"Graph mailFolder lookup failed ({resp.status_code}): {resp.text[:200]}")
+
+    def _ensure_mail_folder(self, name: str, token: str) -> str:
+        """Return the id of the top-level mail folder `name`, creating it if absent.
+        Used to keep each teammate's sent exams/drafts in their own folder inside the
+        shared mailbox. Raises MailerError on a Graph error."""
+        fid = self._find_mail_folder_id(name, token)
+        if fid:
+            return fid
         # Not found → create it.
         resp = requests.post(
             f"{GRAPH}/me/mailFolders",
-            headers={**hdr, "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={"displayName": name}, timeout=30)
         if resp.status_code not in (200, 201):
             raise MailerError(f"Graph create-folder failed ({resp.status_code}): {resp.text[:200]}")
         return resp.json()["id"]
+
+    def _sent_conversation_id(self, folder_name: str, to_email: str, token: str) -> str | None:
+        """conversationId of the newest message in `folder_name` (a per-teammate
+        Sent-Exam folder, e.g. "Na_Sent_Exam") addressed to `to_email`, or None if that
+        folder doesn't exist or holds no message to that recipient. A reply shares the
+        sent message's conversationId, so this lets reply detection be scoped to the exam
+        THIS computer actually sent and filed into its own folder. Never raises."""
+        if not folder_name:
+            return None
+        try:
+            fid = self._find_mail_folder_id(folder_name, token)
+            if not fid:
+                return None
+            resp = requests.get(
+                f"{GRAPH}/me/mailFolders/{fid}/messages",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"$orderby": "sentDateTime desc",
+                        "$select": "conversationId,toRecipients,sentDateTime",
+                        "$top": "50"},
+                timeout=30)
+            if resp.status_code != 200:
+                log.warning("Sent-Exam folder lookup failed (%s): %s",
+                            resp.status_code, resp.text[:200])
+                return None
+            target = (to_email or "").strip().lower()
+            for m in resp.json().get("value", []):
+                addrs = [(r.get("emailAddress", {}).get("address") or "").lower()
+                         for r in m.get("toRecipients", [])]
+                if target in addrs:
+                    return m.get("conversationId")
+            return None
+        except (MailerError, requests.RequestException) as exc:  # noqa: BLE001
+            log.warning("Could not read Sent-Exam folder %s: %s", folder_name, exc)
+            return None
 
     def _move_sent_to_folder(self, subject: str, to_email: str, folder_name: str,
                              token: str) -> bool:
@@ -339,29 +380,55 @@ class GraphMailer:
         return quote(rel_path.strip("/"), safe="/")
 
     # -- exam reply detection + attachment download ---------------------------
-    def check_reply(self, from_email: str, since_iso_utc: str) -> dict | None:
+    def check_reply(self, from_email: str, since_iso_utc: str,
+                    sent_folder: str | None = None) -> dict | None:
         """Find the newest message in the signed-in mailbox FROM `from_email`
         received at/after `since_iso_utc` (UTC ISO8601, e.g. 2026-06-08T03:21:00Z).
         Returns {"id", "subject", "at" (UTC iso), "webLink"} or None. Mail.Read
-        (granted via Mail.ReadWrite) is sufficient — no new permission."""
+        (granted via Mail.ReadWrite) is sufficient — no new permission.
+
+        `sent_folder` scopes detection to THIS computer's work: when given (this
+        teammate's Sent-Exam folder, e.g. "Na_Sent_Exam"), the exam that was actually
+        sent from here and filed there is located, and only a reply in that SAME
+        conversation thread counts — so reply checks stay tied to each teammate's own
+        folder in the shared mailbox, and a stray email from the candidate's address
+        won't be mistaken for a reply. If no matching sent exam is found in that folder
+        (e.g. an older send that never got filed), it falls back to the address+time
+        search below so a genuine reply is never missed."""
         if not from_email:
             return None
         token = self._silent_token(MAIL_SCOPES)
         safe = from_email.replace("'", "''")        # OData string-literal escaping
-        params = {
-            "$filter": (f"from/emailAddress/address eq '{safe}' "
-                        f"and receivedDateTime ge {since_iso_utc}"),
-            "$select": "id,subject,receivedDateTime,webLink,hasAttachments",
-            "$top": "15",
-            # No $orderby: Graph rejects orderby on receivedDateTime combined with a
-            # filter on `from`. Pick the newest client-side.
-        }
+        conv_id = self._sent_conversation_id(sent_folder, from_email, token) if sent_folder else None
+        if conv_id:
+            # Scope to the exam's own thread (the reply shares its conversationId).
+            safe_conv = conv_id.replace("'", "''")
+            params = {
+                "$filter": (f"conversationId eq '{safe_conv}' "
+                            f"and receivedDateTime ge {since_iso_utc}"),
+                "$select": "id,subject,receivedDateTime,webLink,hasAttachments,from",
+                "$top": "25",
+            }
+        else:
+            params = {
+                "$filter": (f"from/emailAddress/address eq '{safe}' "
+                            f"and receivedDateTime ge {since_iso_utc}"),
+                "$select": "id,subject,receivedDateTime,webLink,hasAttachments,from",
+                "$top": "15",
+            }
+        # No $orderby: Graph rejects orderby on receivedDateTime combined with these
+        # filters. Pick the newest client-side.
         resp = requests.get(f"{GRAPH}/me/messages",
                             headers={"Authorization": f"Bearer {token}"},
                             params=params, timeout=30)
         if resp.status_code != 200:
             raise MailerError(f"Graph reply lookup failed ({resp.status_code}): {resp.text[:300]}")
         items = resp.json().get("value", [])
+        if conv_id:
+            # The thread also holds OUR outgoing exam — keep only the candidate's messages.
+            tgt = from_email.strip().lower()
+            items = [m for m in items
+                     if (m.get("from", {}).get("emailAddress", {}).get("address") or "").lower() == tgt]
         if not items:
             return None
         latest = max(items, key=lambda m: m.get("receivedDateTime", ""))
