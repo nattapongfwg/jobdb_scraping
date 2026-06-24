@@ -146,17 +146,21 @@ Key settings (see §4 for what to put):
 | `SEEK_EMAIL` / `SEEK_PASSWORD` / `ADVERTISER_ID` | SEEK employer-portal login + which account |
 | `DB_INSTANCE=SQLEXPRESS`, `DB_TRUSTED=yes` | Local SQL Server, Windows Auth |
 | `DB_DRIVER=ODBC Driver 18 for SQL Server` | Must EXACTLY match the installed driver name |
-| `ONEDRIVE_BASE` | **Set this per computer** — base OneDrive folder for Shortlists/ + Email_Reply_Exam/ (see note below) |
+| `ONEDRIVE_BASE` | Base OneDrive folder for Shortlists/ + Email_Reply_Exam/ — **auto-detected; leave blank** (see note below) |
+| `RECRUITER_NAME` / `RECRUITER_FIRSTNAME` / `RECRUITER_MOBILE` / `RECRUITER_TEL` / `RECRUITER_EMAIL` | **Per-teammate email signature** — set so emails from this machine sign as you |
 | `GRAPH_TENANT_ID` / `GRAPH_CLIENT_ID` | Email / Outlook draft / calendar (Microsoft Graph) |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | AI résumé summaries |
 
 > **Paths & portability:** the résumé folder (`resume/`) defaults to `<project>/resume`,
 > so it follows the project automatically — no change needed (override with `RESUME_DIR`
-> only if you want it elsewhere). The one path that differs per machine is **`ONEDRIVE_BASE`**:
-> if left blank it falls back to one specific Windows user's OneDrive path, so on any other
-> computer set it to that user's OneDrive (e.g.
-> `C:\Users\<you>\OneDrive - freewillsolutions.com\Candidate_JobDB_Scraping`). It only
-> affects the Shortlist and email-reply features, not basic scraping or résumé viewing.
+> only if you want it elsewhere). **`ONEDRIVE_BASE` now auto-detects** per machine: when
+> blank, the app joins Windows' own OneDrive location (the `OneDriveCommercial`/`OneDrive`
+> env var) with `Recruit's files - Recruitment\Recruite_Scraping`, so each teammate's own
+> `C:\Users\<them>\OneDrive - …` resolves automatically. Set it only if your synced library
+> lives elsewhere — a `OneDrive base folder not found` warning at startup flags a bad path.
+> It only affects the Shortlist and email-reply features, not basic scraping or résumé
+> viewing. **Signature is per-teammate:** set the `RECRUITER_*` vars so drafts/sent mail from
+> this machine sign as you (blank → built-in default).
 > Note: résumé paths stored in the DB are absolute — if you *restore an old database*
 > onto a project at a different path, re-download (`--redownload`) to refresh them.
 
