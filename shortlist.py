@@ -50,10 +50,18 @@ def resolve_resume(p: str | None) -> Path | None:
     return path if path.is_file() else None
 
 
-def folder_name_for(job_title: str, today: datetime | None = None) -> str:
-    """Base name `<job_title>_dd_mm_yyyy`, e.g. 'Software_Implementer_08_06_2026'."""
+def folder_name_for(job_title: str, today: datetime | None = None,
+                    prefix: str = "") -> str:
+    """Base name `<job_title>_dd_mm_yyyy`, e.g. 'Software_Implementer_08_06_2026'.
+    When `prefix` (the teammate tag, e.g. 'Na') is set it is appended as a suffix
+    so each teammate's shortlist folders are distinct: `..._dd_mm_yyyy_Na`. Blank
+    prefix keeps the plain name unchanged."""
     today = today or datetime.now()
-    return f"{_safe_folder(job_title)}_{today:%d_%m_%Y}"
+    base = f"{_safe_folder(job_title)}_{today:%d_%m_%Y}"
+    # Strip illegal chars from the tag, but unlike _safe_folder don't fall back to
+    # "Shortlist" — a blank/empty prefix must leave the name untagged.
+    tag = re.sub(r"_+", "_", _ILLEGAL.sub("", prefix or "").strip().replace(" ", "_")).strip("._")
+    return f"{base}_{tag}" if tag else base
 
 
 def unique_folder_name(base: str, exists) -> str:
@@ -191,7 +199,7 @@ def move_to_shortlist(shortlist_base: str | Path, reply_base: str | Path,
     `email_name` must match what build_reply_folder used. `candidates`: list of
     {name, resume_path}. Returns (folder_name, folder_path, moved)."""
     sl_base, rp_base = Path(shortlist_base), Path(reply_base)
-    folder_name = unique_folder_name(folder_name_for(job_title, today),
+    folder_name = unique_folder_name(folder_name_for(job_title, today, email_name),
                                      lambda n: (sl_base / n).exists())
     top = sl_base / folder_name
     top.mkdir(parents=True, exist_ok=True)

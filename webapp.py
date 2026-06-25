@@ -980,7 +980,10 @@ def api_candidates_shortlist_email():
     # Reply folders were named with the teammate prefix suffix at send time, so
     # locate them with the same suffix.
     email_name = _user_prefix()
-    folder_name, link_url, copied = shortlist.folder_name_for(job_title), "", 0
+    # Tag the shortlist folder with the teammate prefix (suffix) so two teammates
+    # shortlisting the same job on the same day get distinct folders. Blank prefix
+    # keeps the plain <job>_dd_mm_yyyy name.
+    folder_name, link_url, copied = shortlist.folder_name_for(job_title, prefix=email_name), "", 0
     try:
         folder_name = shortlist.unique_folder_name(
             folder_name,
