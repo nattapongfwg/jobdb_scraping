@@ -140,11 +140,41 @@ def subfolder_name(name: str) -> str:
     return _safe_file(name) or "candidate"
 
 
+def _norm_folder(s: str) -> str:
+    """Loose key for matching reply-folder names: illegal chars dropped, spaces and
+    underscores unified, lower-cased. So 'Panchanok Pirom', 'Panchanok_Pirom' and
+    'Panchanok   Pirom' all compare equal."""
+    s = _ILLEGAL.sub("", s or "").strip().lower()
+    return re.sub(r"[ _]+", "_", s).strip("_")
+
+
 def candidate_dir(reply_base: str | Path, name: str, email_name: str = "") -> Path | None:
-    """The candidate's Email_Reply_Exam folder (named firstname_lastname_emailname),
-    or None if it doesn't exist. `email_name` must match what build_reply_folder used."""
-    d = Path(reply_base) / reply_folder_name(name, email_name)
-    return d if d.is_dir() else None
+    """The candidate's Email_Reply_Exam folder, or None if it doesn't exist.
+
+    Tolerant of how the folder was named when the reply was downloaded: matches
+    space-vs-underscore differences and whether the teammate prefix suffix is
+    present. This matters because legacy folders were saved as 'Firstname Lastname'
+    (spaces, no prefix) while current code writes 'Firstname_Lastname_<prefix>' —
+    reconstructing only the current name missed the older folders and silently fell
+    back to a résumé-only shortlist."""
+    reply_base = Path(reply_base)
+    # Fast path: exact names current or prefix-less code would have written.
+    for cand in (reply_folder_name(name, email_name), reply_folder_name(name, "")):
+        d = reply_base / cand
+        if d.is_dir():
+            return d
+    # Tolerant scan: match ignoring space/underscore, with or without our suffix.
+    if not reply_base.is_dir():
+        return None
+    target = _norm_folder(name)
+    pfx = _norm_folder(email_name)
+    for d in reply_base.iterdir():
+        if not d.is_dir():
+            continue
+        nd = _norm_folder(d.name)
+        if nd == target or (pfx and nd == f"{target}_{pfx}"):
+            return d
+    return None
 
 
 def _rmtree_retry(func, p, _exc):
@@ -155,6 +185,26 @@ def _rmtree_retry(func, p, _exc):
         func(p)
     except OSError:
         pass   # leave it; the caller's retry loop / final rmdir handles the rest
+
+
+def read_bytes_retry(path: str | Path, attempts: int = 5, delay: float = 0.5) -> bytes:
+    """Read a file's bytes, retrying to ride out a OneDrive online-only placeholder
+    that must hydrate (download on first access) or a file briefly locked by the
+    sync client. Raises the last OSError if every attempt fails.
+
+    Without this, a single OSError mid-upload aborts the shortlist batch after only
+    the first file(s) reached the cloud, leaving an incomplete Shortlists folder."""
+    path = Path(path)
+    last: OSError | None = None
+    for attempt in range(attempts):
+        try:
+            return path.read_bytes()
+        except OSError as exc:
+            last = exc
+            log.warning("read %s failed (attempt %d/%d): %s", path, attempt + 1, attempts, exc)
+            time.sleep(delay)
+    assert last is not None
+    raise last
 
 
 def remove_dir(path: str | Path) -> bool:

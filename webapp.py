@@ -994,18 +994,29 @@ def api_candidates_shortlist_email():
             if srcdir:                                   # upload the whole reply folder
                 # Recurse so nested subfolders are preserved (not just top-level
                 # files). rel keeps each file's path under the candidate subfolder,
-                # using forward slashes for the Graph drive path.
-                for f in sorted(srcdir.rglob("*")):
-                    if f.is_file():
-                        rel = f.relative_to(srcdir).as_posix()
-                        mailer.upload_file(f"{drive_base}/{folder_name}/{sub}/{rel}", f.read_bytes())
-                shortlist.remove_dir(srcdir)             # source removed → moved
+                # using forward slashes for the Graph drive path. read_bytes_retry
+                # rides out OneDrive online-only/locked files so one unreadable file
+                # doesn't abort the batch (which left an incomplete folder before);
+                # a real Graph/permission error still raises MailerError → local move.
+                files = [f for f in sorted(srcdir.rglob("*")) if f.is_file()]
+                uploaded = 0
+                for f in files:
+                    rel = f.relative_to(srcdir).as_posix()
+                    mailer.upload_file(f"{drive_base}/{folder_name}/{sub}/{rel}",
+                                       shortlist.read_bytes_retry(f))
+                    uploaded += 1
+                if files and uploaded == len(files):
+                    shortlist.remove_dir(srcdir)         # all files safely up → move
+                else:
+                    logging.warning("shortlist: uploaded %d/%d files for %s; keeping "
+                                    "source folder %s", uploaded, len(files), sub, srcdir)
                 copied += 1
             else:                                        # no reply folder → résumé only
                 src = shortlist.resolve_resume(c.get("resume_path"))
                 if src:
                     mailer.upload_file(
-                        f"{drive_base}/{folder_name}/{sub}/{sub}{src.suffix or '.pdf'}", src.read_bytes())
+                        f"{drive_base}/{folder_name}/{sub}/{sub}{src.suffix or '.pdf'}",
+                        shortlist.read_bytes_retry(src))
                 copied += 1
         link_url = mailer.create_share_link(f"{drive_base}/{folder_name}")
     except MailerError as exc:
