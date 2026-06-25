@@ -34,15 +34,8 @@
 html, body { margin: 0; }
 body {
   font-family: system-ui, "Segoe UI", Arial, sans-serif;
+  /* minimal theme: flat background colour, no image */
   background-color: var(--bg);
-  /* FMA homunculi backdrop, washed by a light parchment gradient so it reads as a
-     faint texture and panels/text stay legible on the light theme */
-  background-image: linear-gradient(rgba(239,231,214,.88), rgba(239,231,214,.93)),
-                    url('/static/background.jpg');
-  background-size: cover;
-  background-position: center top;
-  background-attachment: fixed;
-  background-repeat: no-repeat;
   color: var(--ink);
   min-height: 100vh;
 }
@@ -71,8 +64,8 @@ a { color: inherit; text-decoration: none; }
   font-family: var(--display); font-size: 17px; color: var(--gold-2);
   text-shadow: none; }
 .brand .logo {
-  width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
-  border: 0; box-shadow: 0 0 16px rgba(212,175,55,.4);
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--blue); border: 0; box-shadow: none;
 }
 .topbar nav { display: flex; gap: 8px; }
 .topbar nav a {
