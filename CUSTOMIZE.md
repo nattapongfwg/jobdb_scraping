@@ -34,8 +34,9 @@ Copy `.env.example` → `.env` and set these for the new user/machine:
 | `SEEK_EMAIL`, `SEEK_PASSWORD` | The new company's SEEK employer login | Required to scrape |
 | `ADVERTISER_ID` | New company's SEEK account id (blank = first) | |
 | `DB_INSTANCE`, `DB_TRUSTED`, `DB_DRIVER`, `DB_HOST` | Match the new machine's SQL Server | `SQLEXPRESS` + Windows Auth is the tested setup |
-| `ONEDRIVE_BASE` | The new user's OneDrive folder | e.g. `C:\Users\<you>\OneDrive - <org>\Candidate_JobDB_Scraping` (falls back to the original owner's path if blank — see [[INSTALL]]) |
+| `ONEDRIVE_BASE` | The new user's OneDrive folder | **Auto-detected** from Windows' OneDrive location + `Recruit's files - Recruitment\Recruite_Scraping` — leave blank on a normal install. Set only if your synced library lives elsewhere (a startup warning flags a missing folder). |
 | `RESUME_DIR`, `SHORTLIST_DIR`, `REPLY_EXAM_DIR`, `SHORTLIST_ONEDRIVE_DIR` | Optional overrides | Résumé dir defaults to `<project>/resume` and needs no change |
+| `RECRUITER_NAME`, `RECRUITER_FIRSTNAME`, `RECRUITER_MOBILE`, `RECRUITER_TEL`, `RECRUITER_EMAIL` | **Per-teammate** signature identity | Each teammate sets their own so emails from their machine sign as them (blank → built-in default). See B1. |
 | `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID` | New company's Azure AD app registration | Delegated device-code flow; see ONBOARDING §4 |
 | `GRAPH_SENDER` | New sender mailbox (informational under delegated auth) | Actual FROM = whoever signs in |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | New OpenAI key | For AI résumé summaries |
@@ -45,24 +46,30 @@ Copy `.env.example` → `.env` and set these for the new user/machine:
 
 ## Group B — hardcoded in source (must edit code / templates)
 
-### B1. Email signature block — **now one shared file: `email_kit/signature.py`**
-The recruiter's name, mobile, office phone, email, and company address that appear at the
-bottom of every outgoing/draft email live in **one place**: the constants at the top of
-**`email_kit/signature.py`** (`RECRUITER_NAME`, `RECRUITER_FIRSTNAME`, `RECRUITER_MOBILE`,
-`RECRUITER_TEL`, `RECRUITER_EMAIL`, `HR_DEPARTMENT`, `COMPANY_NAME`, `COMPANY_ADDRESS_1/2`).
-**Edit those constants once** and all four emails update:
+### B1. Email signature block — **per teammate, via `.env`**
+The recruiter's **identity** (name, first name, mobile, office phone, email) is now
+**per-machine**: each teammate sets `RECRUITER_NAME` / `RECRUITER_FIRSTNAME` /
+`RECRUITER_MOBILE` / `RECRUITER_TEL` / `RECRUITER_EMAIL` in their own `.env` (Group A
+above), so emails sent or drafted from their machine sign as **them** — even though the
+Recruit mailbox is shared. `email_kit/signature.py` reads those env vars at render time;
+its module constants (plus `HR_DEPARTMENT`, `COMPANY_NAME`, `COMPANY_ADDRESS_1/2`, which
+stay shared) are only the fallback defaults when a var is unset.
+
+All four emails render the signature live via a **`{signature}`** placeholder in the
+default templates, so they reflect this machine's recruiter automatically:
 
 | Email | Renders signature via |
 |-------|-----------------------|
-| Exam / interview (`email_kit/templates.py` `DEFAULT_BODY`) | `signature_text()` |
-| Shortlist group (`email_kit/templates.py` `DEFAULT_SHORTLIST_BODY`) | `signature_html(26)` |
+| Exam / interview (`email_kit/templates.py` `DEFAULT_BODY`) | `{signature}` → `signature_text()` |
+| Shortlist group (`email_kit/templates.py` `DEFAULT_SHORTLIST_BODY`) | `{signature}` → `signature_html()` |
 | Evaluation draft (`evaluation.py`) | `signature_html()` |
-| Job-offer draft (`offer.py`, incl. the Thai `ความเห็นฝ่าย Recruit` line) | `signature_html()` + `RECRUITER_FIRSTNAME` |
+| Job-offer draft (`offer.py`, incl. the Thai `ความเห็นฝ่าย Recruit` line) | `{signature}` → `signature_html()` + `recruiter_firstname()` |
 
-> Caveat: the two `email_kit/templates.py` defaults only *seed* `email_kit/email_template.json` on first
-> run. On a machine where that file already exists, editing `email_kit/signature.py` won't rewrite it
-> — change those two templates in the web UI ("Config Email Template"). The evaluation and
-> offer drafts read `email_kit/signature.py` directly, so they update immediately.
+> Caveat: the `email_kit/templates.py` defaults only *seed* `email_kit/email_template.json` on first
+> run. A template that was **already saved with the signature text baked in** (no `{signature}`
+> placeholder) keeps that text — edit it in the web UI ("Config Email Template"), or insert a
+> literal `{signature}` where you want the live block. Freshly-seeded templates and the
+> evaluation/offer drafts pick up the env recruiter immediately.
 
 ### B2. Company name
 `"Freewill Solutions Co., Ltd."` / `"Freewill Solutions Company Limited"` and

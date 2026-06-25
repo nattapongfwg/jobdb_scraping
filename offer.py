@@ -8,7 +8,7 @@ The body/subject text itself lives in email_template.json, editable in the web U
 """
 from __future__ import annotations
 
-from email_kit.signature import RECRUITER_FIRSTNAME
+from email_kit.signature import recruiter_firstname
 from email_kit.templates import render_offer
 
 # Type dropdown value (Thai) -> the New/Replace label shown in the email.
@@ -85,7 +85,7 @@ def build_offer_email(*, template: dict, prefix_name: str, position: str, job_le
         "new_replace_text": new_replace_text, "supervisor": supervisor, "buddy": buddy,
         "expected_salary": expected_salary, "current_salary": current_salary,
         "start_date": start_date, "experience": experience, "interviewer": interviewer,
-        "recruiter_firstname": RECRUITER_FIRSTNAME, "today": today_str,
+        "recruiter_firstname": recruiter_firstname(), "today": today_str,
     }
     # Pre-rendered HTML fragments — dropped into the body raw (already escaped above).
     blocks = {

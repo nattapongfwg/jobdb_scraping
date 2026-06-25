@@ -2,7 +2,7 @@
 several of them in the web UI (Config Email Template). All templates send from the
 same signed-in mailbox (delegated /me/sendMail), so there is no per-template sender.
 
-File shape:  {"templates": [ {id, name, type, company, attachments,
+File shape:  {"templates": [ {id, name, type, company, attachments, cc,
                               default_deadline_time, is_html, custom_vars,
                               subject, body}, ... ]}
 
@@ -27,7 +27,7 @@ import re
 import uuid
 from pathlib import Path
 
-from .signature import RECRUITER_FIRSTNAME, signature_html, signature_text
+from .signature import signature_html, signature_text
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 
@@ -55,13 +55,19 @@ To-do list before interview
 
 Deadline: {deadline}
 
-""" + signature_text()
+{signature}"""
+
+# Default team CC for exam emails. HR-editable per exam template on the config page;
+# this only backfills legacy exam templates that predate the CC field.
+DEFAULT_EXAM_CC = ["Tanakrit_Jai@FreewillSolutions.com",
+                   "Suttharinthon_tap@freewillsolutions.com"]
 
 # Per-template fields and their defaults (id + name handled separately).
 DEFAULT_FIELDS: dict = {
     "type": "exam",                         # "exam" (to candidate) | "shortlist" (group, to team)
     "company": "Freewill Solutions Co., Ltd.",
     "attachments": [],                      # list of file paths to attach (optional)
+    "cc": list(DEFAULT_EXAM_CC),            # extra CC recipients (exam emails only)
     "is_html": False,                       # send body as HTML (else plain text)
     "default_deadline_time": "23:59",       # prefilled time in the deadline picker
     "subject": "Freewill Solutions_Interview: {title_name} ({job_title})",
@@ -77,7 +83,7 @@ DEFAULT_SHORTLIST_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,san
 <p style="margin:0 0 20px"><b>Please see candidate for {job_title} at the attached link</b></p>
 {candidates}
 <p style="margin:14px 0 0"><b>Link document:</b> {link_document}</p>
-""" + signature_html(top_margin=26) + """
+{signature}
 </div>"""
 
 DEFAULT_SHORTLIST_FIELDS: dict = {
@@ -170,7 +176,7 @@ Interviewer : {interviewer}<br>
 </p>
 <hr style="border:none;border-top:1px solid #999;margin:14px 0">
 <p style="margin:0 0 14px">ช่องทางการสรรหา (Sourcing): JOB DB</p>
-""" + signature_html() + """
+{signature}
 </div>"""
 
 DEFAULT_OFFER_FIELDS: dict = {
@@ -204,10 +210,31 @@ def _normalize(t: dict) -> dict:
     if not isinstance(atts, list):
         atts = []
     out["attachments"] = [str(a).strip() for a in atts if str(a).strip()]
+    # cc: extra recipients copied on the email. Only exam emails use it at send time;
+    # other types keep it empty. Legacy exam templates (no cc key) get the team default
+    # so the existing behaviour is preserved until HR edits it.
+    if "cc" in t:
+        out["cc"] = _normalize_cc(t.get("cc"))
+    elif out["type"] == "exam":
+        out["cc"] = list(DEFAULT_EXAM_CC)
+    else:
+        out["cc"] = []
     # custom_vars: HR-defined {name: value} placeholders usable as {name} in the
     # subject/body. Accepts a dict or a [{name, value}, ...] list; empty names dropped.
     out["custom_vars"] = _normalize_custom_vars(t.get("custom_vars"))
     return out
+
+
+def _normalize_cc(raw) -> list[str]:
+    """Coerce a CC value to a list of trimmed email addresses. Accepts a list, or a
+    string separated by commas, semicolons, or newlines. Blanks are dropped."""
+    if isinstance(raw, str):
+        parts = re.split(r"[,;\n]", raw)
+    elif isinstance(raw, list):
+        parts = [str(x) for x in raw]
+    else:
+        return []
+    return [p.strip() for p in parts if p.strip()]
 
 
 def _normalize_custom_vars(raw) -> dict:
@@ -252,19 +279,48 @@ def _seed() -> list[dict]:
     return [_normalize({"name": "Interview / Exam", **DEFAULT_FIELDS})]
 
 
+def _read_doc() -> dict:
+    """The full JSON document ({"templates": [...], "settings": {...}}), or {} on a
+    missing/unreadable/non-dict file."""
+    if TEMPLATE_PATH.is_file():
+        try:
+            data = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def load_settings() -> dict:
+    """Per-machine Config-Email page settings stored alongside the templates
+    (e.g. {"user_prefix": "Na"}). Returns {} when none saved."""
+    s = _read_doc().get("settings")
+    return dict(s) if isinstance(s, dict) else {}
+
+
+def save_settings(settings: dict) -> dict:
+    """Merge `settings` into the stored settings object and persist, preserving the
+    templates. Returns the merged settings."""
+    doc = _read_doc()
+    merged = {**(doc.get("settings") if isinstance(doc.get("settings"), dict) else {}),
+              **(settings or {})}
+    out = {"templates": doc.get("templates") if isinstance(doc.get("templates"), list) else [],
+           "settings": merged}
+    TEMPLATE_PATH.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return merged
+
+
 def load_templates() -> list[dict]:
     """All templates (defaults seeded on first run; old single-template files migrated).
     Guarantees one group "shortlist" template exists. Seeding/migration is persisted
     immediately so ids stay stable across reads."""
     templates: list[dict] | None = None
-    if TEMPLATE_PATH.is_file():
-        try:
-            data = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = None
-        if isinstance(data, dict) and isinstance(data.get("templates"), list) and data["templates"]:
+    data = _read_doc() or None
+    if data is not None:
+        if isinstance(data.get("templates"), list) and data["templates"]:
             templates = [_normalize(t) for t in data["templates"]]
-        elif isinstance(data, dict) and ("subject" in data or "body" in data):
+        elif "subject" in data or "body" in data:
             # Migrate the old single flat template.
             templates = [_normalize({**data, "name": data.get("name") or "Interview / Exam"})]
     if templates is None:
@@ -283,9 +339,14 @@ def load_templates() -> list[dict]:
 
 
 def _write(templates: list[dict]) -> None:
+    """Persist templates, preserving the per-machine settings object (drops any stale
+    top-level keys from the old flat format)."""
+    out = {"templates": templates}
+    settings = _read_doc().get("settings")
+    if isinstance(settings, dict) and settings:
+        out["settings"] = settings
     TEMPLATE_PATH.write_text(
-        json.dumps({"templates": templates}, ensure_ascii=False, indent=2),
-        encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def save_template(data: dict) -> dict:
@@ -325,8 +386,9 @@ def _render_with_fields(template: dict, base: dict, custom: dict) -> tuple[str, 
     can embed links/markup. The subject is always plain text. Returns (subject, body)."""
     is_html = bool(template.get("is_html"))
     e = _esc if is_html else (lambda s: s)
-    body_fields = {**{k: e(v) for k, v in base.items()}, **custom}
-    subj_fields = {**base, **custom}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    body_fields = {**{k: e(v) for k, v in base.items()}, "signature": sig, **custom}
+    subj_fields = {**base, "signature": sig, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
 
@@ -395,11 +457,14 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
 
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in ("job_title", "company", "candidates", "link_document")}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
     body_fields = {"job_title": job, "company": comp,
-                   "candidates": candidates_str, "link_document": link_str, **custom}
+                   "candidates": candidates_str, "link_document": link_str,
+                   "signature": sig, **custom}
     # Subject is always plain text (never HTML-escaped / no markup).
     subj_fields = {"job_title": job_title or "", "company": template.get("company", ""),
-                   "candidates": "", "link_document": link_text or link_url or "", **custom}
+                   "candidates": "", "link_document": link_text or link_url or "",
+                   "signature": sig, **custom}
 
     subject = _fill(template.get("subject", ""), subj_fields)
     raw_body = template.get("body", "")
@@ -420,7 +485,9 @@ def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, st
     e = _esc if is_html else (lambda s: s)
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in fields and k not in blocks}
-    body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks, **custom}
-    subj_fields = {**fields, **custom}
+    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks,
+                   "signature": sig, **custom}
+    subj_fields = {**fields, "signature": sig, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))

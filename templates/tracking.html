@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Status Tracking — Alchemists</title>
+<title>Status Tracking — Recruitment</title>
 <link rel="icon" type="image/png" href="/static/profile.png">
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <div class="brand"><span class="logo"></span> Recruitment</div>
   <nav>
-    <a href="/">Alchemists Postings</a>
+    <a href="/">Job Postings</a>
     <a href="/tracking" class="active">Status Tracking</a>
   </nav>
 </div>
@@ -50,6 +50,7 @@
           <th>Nickname (editable)</th>
           <th>Email (editable)</th>
           <th>Phone (editable)</th>
+          <th>Remark (editable)</th>
           <th>Expected Salary</th>
           <th>Alchemists Title</th>
           <th>Stage</th>
@@ -72,7 +73,7 @@
           <th>Evaluation ⏱</th>
           <th>Offered ⏱</th>
         </tr></thead>
-        <tbody id="rows"><tr><td colspan="26" class="muted" style="padding:16px">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="27" class="muted" style="padding:16px">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -96,8 +97,9 @@ const TITLES = ["", "Mr.", "Ms.", "Mrs."];
 const titleOpts = sel => TITLES.map(t =>
   `<option value="${t}"${(sel||"")===t?" selected":""}>${t||"—"}</option>`).join("");
 const STAGES = {{ stages|tojson }};
-const FLOW = ["prescreen","sent_exam","shortlist","interview","evaluation","offered"];
-const stageNum = k => { const i = FLOW.indexOf(k); return i>=0 ? (i+1)+". " : ""; };
+// Wait Pre-screen is an inserted half-step (1.5) so the original steps keep 2..6.
+const STAGE_NUM = { prescreen:"1. ", wait_prescreen:"1.5 ", sent_exam:"2. ", shortlist:"3. ", interview:"4. ", evaluation:"5. ", offered:"6. " };
+const stageNum = k => STAGE_NUM[k] || "";
 const STAGE_LABEL = Object.fromEntries(STAGES.map(s=>[s.key, stageNum(s.key)+s.label]));
 let candidates = [];
 
@@ -126,7 +128,7 @@ function stageBadge(k){ const cls = k==="offered"?"yes":(k==="not_interest"?"no"
 function render(){
   $("#count").textContent = `${candidates.length} candidate${candidates.length!==1?"s":""}`;
   const tbody = $("#rows");
-  if(!candidates.length){ tbody.innerHTML = `<tr><td colspan="26" class="muted" style="padding:16px">No candidates match.</td></tr>`; return; }
+  if(!candidates.length){ tbody.innerHTML = `<tr><td colspan="27" class="muted" style="padding:16px">No candidates match.</td></tr>`; return; }
   tbody.innerHTML = candidates.map(c => {
     const id = c.application_id;
     const scraped = `<div class="scraped">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>`;
@@ -139,6 +141,7 @@ function render(){
       <td><input class="edit" data-f="nickname" value="${esc(c.nickname)}" placeholder="—" style="min-width:90px"></td>
       <td><input class="edit" data-f="email" value="${esc(c.email)}" placeholder="no email"></td>
       <td><input class="edit" data-f="phone" value="${esc(fmtPhone(c.phone))}" placeholder="—"></td>
+      <td><textarea class="edit remark-cell" data-f="remark" rows="2" maxlength="1000" placeholder="📝 remark…">${esc(c.remark||"")}</textarea></td>
       <td>${c.expect_salary?("฿"+esc(c.expect_salary)):"<span class='muted'>—</span>"}</td>
       <td>${esc(c.job_title)||"<span class='muted'>—</span>"}</td>
       <td>${stageBadge(c.stage||"prescreen")}</td>
@@ -170,9 +173,9 @@ async function onEdit(e){
   const get = f => row.querySelector(`.edit[data-f="${f}"]`).value.trim();
   const phoneInp = row.querySelector('.edit[data-f="phone"]');
   phoneInp.value = fmtPhone(phoneInp.value);   // normalize what's shown + saved
-  const payload = {application_id:id, full_name_edit:get("full_name_edit"), nickname:get("nickname"), email:get("email"), phone:get("phone"), name_title:get("name_title")};
+  const payload = {application_id:id, full_name_edit:get("full_name_edit"), nickname:get("nickname"), email:get("email"), phone:get("phone"), name_title:get("name_title"), remark:get("remark")};
   const local = candidates.find(c => c.application_id===id);
-  if(local){ local.full_name_edit=payload.full_name_edit; local.nickname=payload.nickname; local.email=payload.email; local.phone=payload.phone; local.name_title=payload.name_title; }
+  if(local){ local.full_name_edit=payload.full_name_edit; local.nickname=payload.nickname; local.email=payload.email; local.phone=payload.phone; local.name_title=payload.name_title; local.remark=payload.remark; }
   try {
     const r = await (await fetch("/api/candidates/update", {method:"POST",
       headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)})).json();

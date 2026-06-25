@@ -5,6 +5,7 @@ script (running in WSL2) can reach a SQL Server instance on the Windows host.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -93,7 +96,8 @@ class Config:
     delay_min: float
     delay_max: float
 
-    # Microsoft Graph (exam email) + exam content
+    # Microsoft Graph (exam email) + exam content. One shared delegated app
+    # ("Recruit" mailbox): sends the exam, creates drafts/events, detects replies.
     graph_tenant_id: str
     graph_client_id: str
     graph_client_secret: str
@@ -150,6 +154,41 @@ def _default_host() -> str:
     return _resolve_windows_host()
 
 
+# Stable subpath of the shared Recruit document library inside a teammate's OneDrive.
+# The library name is identical for every teammate; only the user-profile root differs,
+# so this is the part we can hard-code and the root is what we auto-detect.
+_RECRUIT_SUBPATH = r"Recruit's files - Recruitment\Recruite_Scraping"
+
+
+def _resolve_onedrive_base() -> str:
+    """Local path to the shared Recruit OneDrive folder for THIS machine.
+
+    Resolution order, so a fresh teammate install needs no manual path edit:
+      1) ONEDRIVE_BASE in .env — explicit per-machine override, always wins;
+      2) Windows' own OneDrive env var (OneDriveCommercial, else OneDrive) joined with
+         the stable shared-library subpath — resolves each teammate's own
+         ``C:\\Users\\<them>\\OneDrive - freewillsolutions.com\\Recruit's files …``
+         automatically (the user-profile segment differs per person);
+      3) a last-resort literal so nothing crashes when neither is available.
+    Logs a clear warning when the resolved folder doesn't exist, so a misconfigured
+    machine is obvious instead of silently writing candidate files to a dead path."""
+    env = os.getenv("ONEDRIVE_BASE", "").strip()
+    if env:
+        base = env
+    else:
+        od_root = os.environ.get("OneDriveCommercial") or os.environ.get("OneDrive")
+        if od_root:
+            base = os.path.join(od_root, _RECRUIT_SUBPATH)
+        else:
+            base = (r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
+                    r"freewillsolutions.com\Recruit's files - Recruitment\Recruite_Scraping")
+    if not Path(base).exists():
+        log.warning("OneDrive base folder not found: %s\n"
+                    "  Set ONEDRIVE_BASE in .env to your synced "
+                    r"'Recruit's files - Recruitment\Recruite_Scraping' folder.", base)
+    return base
+
+
 def load_config() -> Config:
     db_host = os.getenv("DB_HOST", "").strip() or _default_host()
     # Default to Windows Authentication when no DB_USER is provided.
@@ -158,16 +197,17 @@ def load_config() -> Config:
     resume_env = os.getenv("RESUME_DIR", "").strip()
     resume_dir = Path(resume_env).resolve() if resume_env else (PROJECT_ROOT / "resume")
     # OneDrive base where the app stores candidate folders (synced, shareable).
-    # Override per-machine via ONEDRIVE_BASE in .env (the default is one user's path).
-    onedrive_base = (os.getenv("ONEDRIVE_BASE", "").strip()
-                     or r"C:\Users\nattapong_yuw.FREEWILLGROUP\OneDrive - "
-                        r"freewillsolutions.com\Candidate_JobDB_Scraping")
+    # Auto-detected per-machine (each teammate's own OneDrive), .env ONEDRIVE_BASE wins.
+    onedrive_base = _resolve_onedrive_base()
     # Shortlist resume folders go in OneDrive (so the folder gets a shareable link).
     shortlist_env = os.getenv("SHORTLIST_DIR", "").strip()
     shortlist_dir = Path(shortlist_env) if shortlist_env else Path(onedrive_base) / "Shortlists"
-    # OneDrive-relative folder (under the drive root) for the Graph upload + share link.
+    # OneDrive-relative folder (under the SIGNED-IN Recruit account's drive root) for the
+    # Graph upload + share link. Must point at the SAME physical folder as shortlist_dir
+    # above — i.e. the shared "Recruitment/Recruite_Scraping/Shortlists" that teammates see
+    # locally as "Recruit's files - Recruitment\Recruite_Scraping\Shortlists".
     shortlist_onedrive_dir = (os.getenv("SHORTLIST_ONEDRIVE_DIR", "").strip()
-                              or "Candidate_JobDB_Scraping/Shortlists")
+                              or "Recruitment/Recruite_Scraping/Shortlists")
     # Local OneDrive folder where exam-reply files (résumé + reply attachments) are saved.
     reply_env = os.getenv("REPLY_EXAM_DIR", "").strip()
     reply_exam_dir = Path(reply_env) if reply_env else Path(onedrive_base) / "Email_Reply_Exam"
@@ -195,8 +235,12 @@ def load_config() -> Config:
         schema_sql=(PROJECT_ROOT / "schema.sql"),
         delay_min=_get_float("DELAY_MIN", 1.0),
         delay_max=_get_float("DELAY_MAX", 2.5),
-        graph_tenant_id=os.getenv("GRAPH_TENANT_ID", "").strip(),
-        graph_client_id=os.getenv("GRAPH_CLIENT_ID", "").strip(),
+        # Single shared "Recruit" delegated app. Client/tenant IDs are not secrets,
+        # so the known values are baked in as defaults but stay overridable via .env.
+        graph_tenant_id=(os.getenv("GRAPH_TENANT_ID", "").strip()
+                         or "3e85c516-2459-4d8d-9d02-50f74400bfd2"),
+        graph_client_id=(os.getenv("GRAPH_CLIENT_ID", "").strip()
+                         or "f53de24a-7865-41fe-b068-7f31b330ab13"),
         graph_client_secret=os.getenv("GRAPH_CLIENT_SECRET", "").strip(),
         graph_sender=os.getenv("GRAPH_SENDER", "").strip(),
         exam_subject=os.getenv("EXAM_SUBJECT", "Pre-employment exam invitation"),

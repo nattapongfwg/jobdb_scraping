@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ job.title or 'Pipeline' }} — Alchemists</title>
+<title>{{ job.title or 'Pipeline' }} — Recruitment</title>
 <link rel="icon" type="image/png" href="/static/profile.png">
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <div class="brand"><span class="logo"></span> Recruitment</div>
   <nav>
-    <a href="/" class="active">Alchemists Postings</a>
+    <a href="/" class="active">Job Postings</a>
     <a href="/tracking">Status Tracking</a>
   </nav>
 </div>
@@ -133,9 +133,13 @@
         <input type="text" id="ofCurSalary" value="-"></label>
       <label>Start Date
         <input type="text" id="ofStart" placeholder="e.g. 30 days"></label>
-      <label style="grid-column:1/3">Experience (headline — free text)
-        <input type="text" id="ofExperience"
-          placeholder="e.g. (Freelance) experience with Automated Data Scraping for SME"></label>
+      <div style="grid-column:1/3">
+        <label>Experience (headline — 🧪 AI, editable)
+          <input type="text" id="ofExperience"
+            placeholder="⚗️ Generating experience headline…"></label>
+        <button type="button" class="btn tiny secondary" id="ofHeadlineRegen"
+          onclick="regenerateOfferHeadline(this)" style="margin-top:6px">↻ Regenerate</button>
+      </div>
       <div style="grid-column:1/3">
         <label>AI experience detail — 2 bullet points (🧪 editable)
           <textarea id="ofExperienceAI" rows="3" style="width:100%;resize:vertical"
@@ -174,6 +178,10 @@
   <iframe id="resumeFrame" class="drawer-frame" title="Resume PDF"></iframe>
 </aside>
 
+<!-- Searchable dropdown options for the University / Major card inputs (type to filter). -->
+<datalist id="universityOptions">{% for u in universities %}<option value="{{ u }}"></option>{% endfor %}</datalist>
+<datalist id="majorOptions">{% for m in majors %}<option value="{{ m }}"></option>{% endfor %}</datalist>
+
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => (s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -199,9 +207,16 @@ const JOB_TITLE = {{ (job.title or "")|tojson }};       // บทบาท (Role
 const stageIndex = k => STAGES.findIndex(s => s.key === k);
 const STAGE_LABEL = Object.fromEntries(STAGES.map(s => [s.key, s.label]));
 const DATE_LABELS = { shortlist:"Shortlist date", interview:"Interview date", evaluation:"Evaluation date", offered:"Offer date" };
-// Numbered 1..6 for the main flow; Not Interest is an off-ramp (✕, no number).
-const FLOW = ["prescreen","sent_exam","shortlist","interview","evaluation","offered"];
-const stageNum = k => { const i = FLOW.indexOf(k); return i>=0 ? (i+1) : "✕"; };
+// FLOW = linear order (drives isBackward). STAGE_NUM = the displayed step number;
+// Wait Pre-screen is an inserted half-step (1.5) so the original steps keep 2..6.
+// Not Interest is an off-ramp (✕, no number).
+const FLOW = ["prescreen","wait_prescreen","sent_exam","shortlist","interview","evaluation","offered"];
+const STAGE_NUM = { prescreen:"1", wait_prescreen:"1.5", sent_exam:"2", shortlist:"3", interview:"4", evaluation:"5", offered:"6" };
+const stageNum = k => STAGE_NUM[k] || "✕";
+// Stages that show the AI résumé summary + field-extraction blocks. Generation is
+// kicked off when a candidate enters Wait Pre-screen; it stays visible through
+// Sent Exam so HR can review/edit it before and after sending the exam.
+const AI_STAGES = new Set(["wait_prescreen","sent_exam"]);
 const allowedTargets = key => MOVES[key] || [];
 // A move is "backward" when the target sits earlier in the linear FLOW than the
 // current stage (off-ramp not_interest is not part of FLOW, so it's never backward).
@@ -274,7 +289,7 @@ async function doMove(id, stageKey, date){
       if(stageKey==="evaluation") c.evaluation_date = date;
       if(stageKey==="offered")   c.offer_date = date;
     }
-    if(stageKey==="sent_exam") fetchSummary(id);   // start the résumé summary now
+    if(stageKey==="wait_prescreen"){ fetchSummary(id); fetchExtract(id); }   // pre-screen: OCR/read résumé → AI summary + field extraction, cached to DB
   }
   return r.stage_label || STAGE_LABEL[stageKey];
 }
@@ -423,7 +438,7 @@ function openOfferModal(id){
   $("#ofExpSalary").value = c.expect_salary || "";          // prefill from DB
   $("#ofCurSalary").value = "-";
   $("#ofStart").value = "";
-  $("#ofExperience").value = "";                             // headline free text
+  $("#ofExperience").value = "";                             // headline (AI, filled below)
   $("#ofInterviewer").value = c.interviewer || "";           // from DB, editable
   $("#ofInterviewComments").value = OFFER_DEFAULTS.interviewer_comments || "";
   $("#ofRecruit").value = OFFER_DEFAULTS.recruiter_comments || "";
@@ -432,9 +447,34 @@ function openOfferModal(id){
   $("#ofType").onchange = updNR; updNR();
   $("#offerModal").classList.add("open");
   $("#ofCount").focus();
+  fetchOfferHeadline(id);                   // AI Experience headline (cached or generated)
   fetchOfferExperience(id);                 // AI Experience blurb (cached or generated)
 }
 window.openOfferModal = openOfferModal;
+
+// Load (cached) or generate the AI Experience HEADLINE into the popup input.
+async function fetchOfferHeadline(id, force=false){
+  const inp = $("#ofExperience");
+  inp.value = ""; inp.disabled = true;
+  inp.placeholder = force ? "⚗️ Regenerating experience headline…"
+                          : "⚗️ Generating experience headline…";
+  try {
+    const r = await (await fetch("/api/candidates/offer-headline", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, force})})).json();
+    if(pendingOffer !== id) return;          // popup changed/closed while generating
+    if(r.ok){ inp.value = r.headline || ""; }
+    else { inp.placeholder = "Could not generate — type manually. (" + (r.error||"") + ")"; }
+  } catch(e){ inp.placeholder = "Generation failed — type the experience manually."; }
+  finally { inp.disabled = false; }
+}
+function regenerateOfferHeadline(btn){
+  if(!pendingOffer) return;
+  const lbl = btn.textContent; btn.disabled = true; btn.textContent = "Regenerating…";
+  fetchOfferHeadline(pendingOffer, true)
+    .finally(() => { btn.disabled = false; btn.textContent = lbl; });
+}
+window.regenerateOfferHeadline = regenerateOfferHeadline;
 
 // Load (cached) or generate the AI Experience blurb into the popup textarea.
 async function fetchOfferExperience(id, force=false){
@@ -620,7 +660,8 @@ async function confirmSendExam(){
     if(!r.ok) throw new Error(r.error||"send failed");
     const c = candidates.find(x => x.application_id===id);
     if(c){ c.stage = "sent_exam"; c.is_sent_exam = true; }
-    fetchSummary(id);   // start the résumé summary now
+    // No AI here — the résumé summary + field extraction were already generated at
+    // the Wait Pre-screen step. Sending the exam only emails the candidate.
     closeExamModal();
     toast(`Exam emailed — moved to ${r.stage_label||"Sent Exam"}.`, 3000);
     render();
@@ -654,15 +695,24 @@ async function saveField(e){
   const inp = e.target, card = inp.closest(".cand-card"), id = card.dataset.id;
   const c = candidates.find(x => x.application_id===id); if(!c) return;
   const get = f => card.querySelector(`.cd-edit[data-f="${f}"]`).value.trim();
+  // University/Major inputs exist only on Sent-Exam cards — preserve the stored
+  // value when the input isn't present so saving from another stage won't wipe it.
+  const getOpt = f => { const el = card.querySelector(`.cd-edit[data-f="${f}"]`);
+    return el ? el.value.trim() : (c[f] || ""); };
   const phoneInp = card.querySelector('.cd-edit[data-f="phone"]');
   phoneInp.value = fmtPhone(phoneInp.value);   // normalize what's shown + saved
   c.full_name_edit = get("full_name_edit"); c.email = get("email"); c.phone = get("phone");
-  c.name_title = get("name_title");
+  c.name_title = get("name_title"); c.nickname = get("nickname");
+  c.university = getOpt("university"); c.major = getOpt("major");
+  c.remark = getOpt("remark");
+  c.exp_total = getOpt("exp_total"); c.exp_directly = getOpt("exp_directly");
   try {
     const r = await (await fetch("/api/candidates/update", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({application_id:id, full_name_edit:c.full_name_edit,
-        nickname:c.nickname||"", email:c.email, phone:c.phone, name_title:c.name_title})})).json();
+        nickname:c.nickname||"", email:c.email, phone:c.phone, name_title:c.name_title,
+        university:c.university||"", major:c.major||"", remark:c.remark||"",
+        exp_total:c.exp_total||"", exp_directly:c.exp_directly||""})})).json();
     if(!r.ok) throw new Error("save failed");
     inp.classList.add("saved"); setTimeout(()=>inp.classList.remove("saved"), 1200);
   } catch(err){ toast("Could not save: "+err, 6000); }
@@ -754,14 +804,14 @@ async function recheckReplies(){
 }
 window.recheckReplies = recheckReplies;
 
-/* ---------- AI résumé summary (Sent Exam stage only) ---------- */
+/* ---------- AI résumé summary (Wait Pre-screen + Sent Exam stages) ---------- */
 const summaryInFlight = new Set();   // dedupe concurrent generate requests
 
-// The ChatGPT summary block, shown ONLY on cards in the Sent Exam stage.
+// The ChatGPT summary block, shown on Wait Pre-screen + Sent Exam cards.
 // Once generated (or if there's no resume to auto-summarise) it's an editable,
 // saveable textarea so HR can fix the wording or write one by hand.
 function summaryBlock(c){
-  if(selectedStage !== "sent_exam") return "";
+  if(!AI_STAGES.has(selectedStage)) return "";
   const id = c.application_id;
   const tag = `<span class="ai-tag">🧪 AI résumé summary</span>`;
   // Auto-generation in progress (or about to start): show a loading state.
@@ -822,6 +872,7 @@ async function regenerateSummary(id, btn){
     const c = candidates.find(x => x.application_id===id);
     if(c){ c.ai_summary = r.summary; c._summaryError = null; }
     refreshSummaryCard(id);   // rebuilds the block with the new text
+    fetchExtract(id, true);   // also re-extract name/university/major from the résumé
     toast("Summary regenerated.", 2500);
   } catch(e){
     toast("Could not regenerate: "+e.message, 6000);
@@ -844,16 +895,110 @@ async function fetchSummary(id){
   } catch(e){ c._summaryError = "Summary request failed."; }
   finally {
     summaryInFlight.delete(id);
-    if(selectedStage==="sent_exam") refreshSummaryCard(id);
+    if(AI_STAGES.has(selectedStage)) refreshSummaryCard(id);
   }
 }
 
-// Kick off summaries for any Sent-Exam card that doesn't have one yet.
+// Kick off summaries for any visible AI-stage card that doesn't have one yet.
 function ensureSummaries(){
-  if(selectedStage !== "sent_exam") return;
+  if(!AI_STAGES.has(selectedStage)) return;
   filtered().forEach(c => {
     if(!c.ai_summary && !c._summaryError && c.resume_downloaded) fetchSummary(c.application_id);
+    if(!c.ai_extract_json && c.resume_downloaded) fetchExtract(c.application_id);
   });
+}
+
+/* ---------- AI résumé field extraction (University / Major, Wait Pre-screen + Sent Exam) ---------- */
+const extractInFlight = new Set();   // dedupe concurrent extract requests
+
+// Parse + cache the AI extraction suggestion ({full_name, university, major}).
+function extractOf(c){
+  if(c._extract) return c._extract;
+  try { c._extract = c.ai_extract_json ? JSON.parse(c.ai_extract_json) : {}; }
+  catch(e){ c._extract = {}; }
+  return c._extract;
+}
+
+// University + Major inputs, shown on Wait Pre-screen + Sent Exam cards. Pre-filled
+// with the HR-saved value if present, else the AI suggestion — "fill, don't auto-save":
+// these persist only when HR edits/saves the card (saveField), unlike full_name.
+function extraFieldsBlock(c){
+  if(!AI_STAGES.has(selectedStage)) return "";
+  const ex = extractOf(c);
+  const uni = c.university || ex.university || "";
+  const maj = c.major || ex.major || "";
+  return `<div class="cand-extra">
+    <input class="edit cd-edit cd-uni" data-f="university" list="universityOptions"
+      value="${esc(uni)}" placeholder="🎓 university" title="University (type to search)" autocomplete="off">
+    <input class="edit cd-edit cd-major" data-f="major" list="majorOptions"
+      value="${esc(maj)}" placeholder="major" title="Major (type to search)" autocomplete="off">
+  </div>
+  <div class="cand-exp">
+    <label class="exp-field" title="AI: total years of work experience across all jobs (editable)">⏳ Total exp
+      <input class="edit cd-edit cd-exp exp-total" data-f="exp_total" inputmode="decimal"
+        value="${esc(c.exp_total||ex.exp_total||"")}" placeholder="—"> yrs</label>
+    <label class="exp-field direct" title="AI: years of experience directly matching the job title (editable)">🎯 Directly
+      <input class="edit cd-edit cd-exp exp-directly" data-f="exp_directly" inputmode="decimal"
+        value="${esc(c.exp_directly||ex.exp_directly||"")}" placeholder="—"> yrs</label>
+  </div>`;
+}
+
+// HR free-text remark, shown + editable on cards in EVERY stage. Saves on change
+// via the shared cd-edit listener (saveField); max 1000 characters.
+function remarkBlock(c){
+  return `<div class="cand-remark">
+    <textarea class="edit cd-edit cd-remark" data-f="remark" rows="2" maxlength="1000"
+      placeholder="📝 Remark (max 1000 characters)…" title="Remark">${esc(c.remark||"")}</textarea>
+  </div>`;
+}
+
+// Update the name + university/major inputs in place after an extraction lands.
+// On a normal (auto) run we don't clobber anything HR has already typed into
+// uni/major; on a forced regenerate we overwrite them with the fresh suggestion.
+function refreshExtractCard(id, force){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const card = document.querySelector(`.cand-card[data-id="${CSS.escape(id)}"]`);
+  if(!card) return;
+  const ex = extractOf(c);
+  const nameInp = card.querySelector('.cd-edit[data-f="full_name_edit"]');
+  if(nameInp && c.full_name_edit) nameInp.value = c.full_name_edit;
+  const uniInp = card.querySelector('.cd-edit[data-f="university"]');
+  if(uniInp && (force || !uniInp.value.trim())) uniInp.value = c.university || ex.university || "";
+  const majInp = card.querySelector('.cd-edit[data-f="major"]');
+  if(majInp && (force || !majInp.value.trim())) majInp.value = c.major || ex.major || "";
+  // exp_total / exp_directly are editable inputs (DB-backed). On a forced
+  // regenerate overwrite them with the fresh AI value; on a background auto-run
+  // only fill them when empty so an HR edit isn't clobbered.
+  const total = card.querySelector('.exp-total');
+  if(total && (force || !total.value.trim())) total.value = c.exp_total || ex.exp_total || "";
+  const direct = card.querySelector('.exp-directly');
+  if(direct && (force || !direct.value.trim())) direct.value = c.exp_directly || ex.exp_directly || "";
+}
+
+// Generate (and cache) the structured extraction for one candidate. Best-effort:
+// failures stay silent (the résumé summary already surfaces AI errors). The server
+// overwrites full_name_edit; university/major come back as suggestions. Pass
+// force=true (from Regenerate) to re-run even when an extraction is already cached.
+async function fetchExtract(id, force){
+  const c = candidates.find(x => x.application_id===id);
+  if(!c || (!force && c.ai_extract_json) || !c.resume_downloaded || extractInFlight.has(id)) return;
+  extractInFlight.add(id);
+  try {
+    const r = await (await fetch("/api/candidates/extract", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, force:!!force})})).json();
+    if(r.ok){
+      c._extract = r.extract || {};
+      c.ai_extract_json = JSON.stringify(c._extract);
+      if(c._extract.full_name) c.full_name_edit = c._extract.full_name;  // server overwrote it
+      c.exp_total = c._extract.exp_total || "";        // server persisted these to the DB
+      c.exp_directly = c._extract.exp_directly || "";
+    }
+  } catch(e){ /* extraction is best-effort — no blocking error UI */ }
+  finally {
+    extractInFlight.delete(id);
+    if(AI_STAGES.has(selectedStage)) refreshExtractCard(id, force);
+  }
 }
 
 function moveBtn(id, tk, curr){
@@ -886,17 +1031,17 @@ function renderCards(){
   }
   html += list.map(c => {
     const id = c.application_id, name = c.full_name_edit || c.full_name_jobdb || "?";
-    const nick = c.nickname ? ` <span style="color:var(--ink-soft);font-weight:600">(${esc(c.nickname)})</span>` : "";
     return `<div class="cand-card${selectedStage==="sent_exam"?" selectable":""}" draggable="false" data-id="${esc(id)}">
       ${selectedStage==="sent_exam" ? `<label class="sel-check" title="Select"><input type="checkbox" class="cand-select" data-id="${esc(id)}" ${selectedIds.has(id)?"checked":""}></label>` : ""}
       <div class="cand-avatar">${esc(name[0]||"?")}</div>
       <div class="cand-body">
         <p class="cand-name">
           <select class="edit cd-edit cd-title" data-f="name_title" title="Title">${titleOpts(c.name_title)}</select>
+          <input class="edit cd-edit cd-nick" data-f="nickname" value="${esc(c.nickname)}" placeholder="nickname" title="Nickname">
           <input class="edit cd-edit cd-name" data-f="full_name_edit" value="${esc(c.full_name_edit)}" placeholder="name">
           <input class="edit cd-edit cd-email" data-f="email" value="${esc(c.email)}" placeholder="no email"></p>
         <div class="cand-sub2"><span class="drag-handle" title="Drag to move">⠿</span>
-          <div class="scraped cd-jobdb">JobDB: ${esc(c.full_name_jobdb)||"—"}${nick}</div>
+          <div class="scraped cd-jobdb">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>
           <input class="edit cd-edit cd-phone" data-f="phone" value="${esc(fmtPhone(c.phone))}" placeholder="phone">
         </div>
         <div class="cand-tags">
@@ -909,7 +1054,9 @@ function renderCards(){
           ${c.evaluation_date?`<span class="pill wait">📝 ${esc(c.evaluation_date)}</span>`:""}
           ${c.offer_date?`<span class="pill yes">🎉 ${esc(c.offer_date)}</span>`:""}
         </div>
+        ${extraFieldsBlock(c)}
         ${summaryBlock(c)}
+        ${remarkBlock(c)}
       </div>
       <div class="cand-actions">
         ${c.resume_downloaded?`<button class="btn tiny secondary" onclick="openResume('${esc(id)}', this.closest('.cand-card').querySelector('.cd-edit[data-f=full_name_edit]').value)">📄 Resume</button>`:`<button class="btn tiny secondary" disabled title="No resume on file">📄 No resume</button>`}
@@ -933,7 +1080,7 @@ function renderCards(){
   box.querySelectorAll(".cand-select").forEach(cb =>
     cb.addEventListener("change", e => toggleSelect(e.target.dataset.id, e.target.checked)));
   updateBulkBar();     // sync the toolbar count / select-all state with selectedIds
-  ensureSummaries();   // lazily generate AI summaries for Sent-Exam cards on view
+  ensureSummaries();   // lazily generate AI summaries for AI-stage cards on view
   ensureReplies();     // lazily check mailbox replies for sent_exam+ cards on view
 }
 

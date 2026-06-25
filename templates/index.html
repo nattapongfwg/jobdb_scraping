@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Alchemists Postings —  Alchemists</title>
+<title>Job Postings — Recruitment</title>
 <link rel="icon" type="image/png" href="/static/profile.png">
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 <div class="topbar">
-  <div class="brand"><img class="logo" src="/static/profile.png" alt=""> Recruit Alchemists</div>
+  <div class="brand"><span class="logo"></span> Recruitment</div>
   <nav>
-    <a href="/" class="active">Alchemists Postings</a>
+    <a href="/" class="active">Job Postings</a>
     <a href="/tracking">Status Tracking</a>
   </nav>
 </div>
@@ -19,7 +19,7 @@
 <div class="container full">
   <div class="page-head">
     <div>
-      <h1 class="page-title">Alchemists <span class="accent">Postings</span></h1>
+      <h1 class="page-title">Job <span class="accent">Postings</span></h1>
       <p class="page-sub">Select a job to view its candidate pipeline.</p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -89,7 +89,7 @@ function render(){
   $("#cnt-offline").textContent = byStatus(false).length;
   const list = currentTab === "online" ? byStatus(true) : byStatus(false);
   const box = $("#jobList");
-  if(!list.length){ box.innerHTML = `<div class="empty-state">No ${currentTab} Alchemists postings.${jobs.length?"":" Run the scraper first."}</div>`; return; }
+  if(!list.length){ box.innerHTML = `<div class="empty-state">No ${currentTab} Job postings.${jobs.length?"":" Run the scraper first."}</div>`; return; }
   box.innerHTML = list.map(j => {
     const status = j.is_active
       ? `<span class="status online"><span class="dot">●</span> Online</span>`

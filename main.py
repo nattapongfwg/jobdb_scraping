@@ -190,17 +190,17 @@ def run(args: argparse.Namespace) -> int:
                      job["job_id"], job.get("title") or "?")
             # Fast re-downloads: skip candidates already downloaded last time WITHOUT
             # clicking their card. --redownload disables the skip (re-fetches all).
-            skip_ids = (set() if args.redownload
-                        else db.get_downloaded_application_ids(job["job_id"]))
-            if skip_ids:
+            skip_keys = (set() if args.redownload
+                         else db.get_downloaded_candidate_keys(job["job_id"]))
+            if skip_keys:
                 log.info("  %d already-downloaded candidate(s) will be skipped fast "
-                         "(use --redownload to force re-fetch).", len(skip_ids))
+                         "(use --redownload to force re-fetch).", len(skip_keys))
             # Progress lines (SCRAPE_TOTAL / SCRAPE_PROGRESS) drive the web UI's
             # progress bar; the ScrapeManager parses them from stdout.
             done = 0
             total_emitted = False
             for applicant in scraper.iter_job_applicants(
-                    job, limit=args.limit, skip_ids=skip_ids):
+                    job, limit=args.limit, skip_keys=skip_keys):
                 if not total_emitted:
                     total = getattr(scraper, "last_candidate_total", None) or 0
                     if args.limit:

@@ -97,11 +97,23 @@ IF COL_LENGTH('dbo.applicants', 'recruiter_name') IS NULL
     ALTER TABLE dbo.applicants ADD recruiter_name NVARCHAR(200) NULL;
 IF COL_LENGTH('dbo.applicants', 'expect_salary') IS NULL
     ALTER TABLE dbo.applicants ADD expect_salary NVARCHAR(100) NULL;
--- AI (ChatGPT) resume summary, generated when a candidate reaches "Sent Exam".
+-- AI (ChatGPT) resume summary, generated when a candidate reaches "Wait Pre-screen".
 IF COL_LENGTH('dbo.applicants', 'ai_summary') IS NULL
     ALTER TABLE dbo.applicants ADD ai_summary NVARCHAR(MAX) NULL;
 IF COL_LENGTH('dbo.applicants', 'ai_summary_at') IS NULL
     ALTER TABLE dbo.applicants ADD ai_summary_at DATETIME2 NULL;
+-- AI (ChatGPT) structured extraction from the résumé, generated alongside the
+-- summary at "Wait Pre-screen". university/major are HR-editable; full_name overwrites
+-- full_name_edit. ai_extract_json caches the raw suggestion so we don't re-call
+-- the API and so university/major can pre-fill inputs without being auto-saved.
+IF COL_LENGTH('dbo.applicants', 'university') IS NULL
+    ALTER TABLE dbo.applicants ADD university NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.applicants', 'major') IS NULL
+    ALTER TABLE dbo.applicants ADD major NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.applicants', 'ai_extract_json') IS NULL
+    ALTER TABLE dbo.applicants ADD ai_extract_json NVARCHAR(MAX) NULL;
+IF COL_LENGTH('dbo.applicants', 'ai_extract_at') IS NULL
+    ALTER TABLE dbo.applicants ADD ai_extract_at DATETIME2 NULL;
 -- Exam-reply detection (read from the signed-in mailbox). reply_received tri-state:
 -- NULL = never checked, 0 = checked/no reply, 1 = replied. reply_at in Thai time.
 IF COL_LENGTH('dbo.applicants', 'reply_received') IS NULL
@@ -154,6 +166,25 @@ IF COL_LENGTH('dbo.applicants', 'offer_interviewer_comments') IS NULL
 -- AI-generated 2-paragraph detail rendered as bullet points beneath it.
 IF COL_LENGTH('dbo.applicants', 'offer_experience_ai') IS NULL
     ALTER TABLE dbo.applicants ADD offer_experience_ai NVARCHAR(MAX) NULL;
+-- Stable per-candidate dedup key within a job: normalized name + applied_at.
+-- SEEK's application_id (the selected=<uuid>) is regenerated every scraping
+-- session, so it CANNOT be used to recognise a candidate across re-scrapes —
+-- doing so created duplicate rows (and resurrected rejected/exam-sent candidates
+-- back into Pending). candidate_key is derived from stable application content
+-- (db.candidate_key) and is what the upsert MERGEs on. Backfilled for existing
+-- rows by the one-off dedup migration; the upsert populates it going forward.
+IF COL_LENGTH('dbo.applicants', 'candidate_key') IS NULL
+    ALTER TABLE dbo.applicants ADD candidate_key NVARCHAR(450) NULL;
+-- Free-text HR remark/note per candidate (editable in every pipeline stage, max 1000 chars).
+IF COL_LENGTH('dbo.applicants', 'remark') IS NULL
+    ALTER TABLE dbo.applicants ADD remark NVARCHAR(1000) NULL;
+-- AI-computed experience (years), generated alongside the résumé extraction at
+-- "Wait Pre-screen". exp_total = total work experience across all jobs;
+-- exp_directly = experience matching the job-title keywords (always <= exp_total).
+IF COL_LENGTH('dbo.applicants', 'exp_total') IS NULL
+    ALTER TABLE dbo.applicants ADD exp_total DECIMAL(5,2) NULL;
+IF COL_LENGTH('dbo.applicants', 'exp_directly') IS NULL
+    ALTER TABLE dbo.applicants ADD exp_directly DECIMAL(5,2) NULL;
 GO
 
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet
@@ -164,3 +195,8 @@ GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_applicants_job_id')
     CREATE INDEX IX_applicants_job_id ON dbo.applicants(job_id);
+
+-- Speeds up the dedup MERGE (ON job_id + candidate_key) and the pre-click
+-- skip lookup. Non-unique: uniqueness is enforced in code by the MERGE.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_applicants_job_candkey')
+    CREATE INDEX IX_applicants_job_candkey ON dbo.applicants(job_id, candidate_key);

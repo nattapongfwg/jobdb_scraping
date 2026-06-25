@@ -30,6 +30,7 @@ from playwright.sync_api import (
 )
 
 from config import Config
+from db import candidate_key
 
 log = logging.getLogger(__name__)
 
@@ -436,7 +437,7 @@ class SeekScraper:
         return True
 
     def iter_job_applicants(self, job: dict[str, Any], limit: int | None = None,
-                            skip_ids: set[str] | None = None):
+                            skip_keys: set[str] | None = None):
         """Yield fully-extracted applicants for a job in a SINGLE pass.
 
         The candidate list is virtualized (only ~25 cards stay in the DOM), so we
@@ -445,13 +446,14 @@ class SeekScraper:
         button in the DOM), extract fields, yield it — then scroll to reveal more.
         The caller downloads the resume and upserts before the next yield.
 
-        `skip_ids` holds application_ids already downloaded in a previous run; cards
-        whose id is read (cheaply, pre-click) and found here are yielded as light
-        duplicates without clicking — making re-downloads near-instant.
+        `skip_keys` holds candidate_keys already downloaded in a previous run; cards
+        whose key is derived (cheaply, pre-click, from name + applied date) and
+        found here are yielded as light duplicates without clicking — making
+        re-downloads near-instant.
         """
         page = self.page
         job_id = job["job_id"]
-        skip_ids = skip_ids or set()
+        skip_keys = skip_keys or set()
         try:
             self._goto_scoped(f"/candidates/?jobid={job_id}",
                               wait_selector=SELECTORS["applicant_card"], timeout=40000)
@@ -468,25 +470,25 @@ class SeekScraper:
 
         processed: set[str] = set()
         # 1) The default (inbox / กล่องข้อความ) view.
-        yield from self._process_view(job, processed, limit, skip_ids)
+        yield from self._process_view(job, processed, limit, skip_keys)
         # 2) Every other non-empty folder tab (ชอร์ตลิสต์, คุณสมบัติไม่ตรง, …). Clicking a
         #    tab re-filters the list; dedup is via `processed` here PLUS the DB MERGE on
-        #    application_id, so a candidate is never downloaded or stored twice.
+        #    candidate_key, so a candidate is never downloaded or stored twice.
         if not (limit and len(processed) >= limit):
             try:
-                yield from self._iter_other_folders(job, processed, limit, skip_ids)
+                yield from self._iter_other_folders(job, processed, limit, skip_keys)
             except Exception as exc:  # noqa: BLE001 — never lose the inbox results
                 log.warning("Folder iteration stopped early: %s", exc)
         log.info("Job %s: processed %d candidate(s) across all folders.",
                  job_id, len(processed))
 
     def _process_view(self, job: dict[str, Any], processed: set[str],
-                      limit: int | None, skip_ids: set[str]):
+                      limit: int | None, skip_keys: set[str]):
         """Process every candidate card in the CURRENT list view (one folder tab),
         yielding each. The list is virtualized, so pick the first unprocessed card,
         select it, extract, yield — then scroll for more until none are new. The
         shared `processed` set (card keys) dedups across folders. Cards whose
-        application_id is in `skip_ids` are yielded as light duplicates (no click).
+        candidate_key is in `skip_keys` are yielded as light duplicates (no click).
         """
         page = self.page
         job_id = job["job_id"]
@@ -532,13 +534,16 @@ class SeekScraper:
             applied = self._card_applied(card)
             expect_salary = self._card_expected_salary(card)
 
-            # Fast path: a candidate already downloaded in a previous run. Identify it
-            # from the card link (no click) and yield a light duplicate — no detail
-            # panel, no resume modal, no 1.5s wait.
-            app_id = self._card_application_id(card)
-            if app_id and app_id in skip_ids:
+            # Fast path: a candidate already downloaded in a previous run. The name
+            # and applied date are readable from the card (no click), so derive the
+            # stable candidate_key and skip if we've already got their resume — no
+            # detail panel, no resume modal, no 1.5s wait. (We must NOT key on the
+            # card's UUID here: SEEK regenerates it every scrape, so it would never
+            # match and every candidate would be re-downloaded + re-inserted.)
+            ckey = candidate_key({"full_name": name, "applied_at": applied})
+            if ckey and ckey in skip_keys:
                 light = {
-                    "application_id": app_id,
+                    "candidate_key": ckey,
                     "job_id": job_id,
                     "job_title": job.get("title"),
                     "full_name": name,
@@ -639,7 +644,7 @@ class SeekScraper:
         return tabs
 
     def _iter_other_folders(self, job: dict[str, Any], processed: set[str],
-                            limit: int | None, skip_ids: set[str]):
+                            limit: int | None, skip_keys: set[str]):
         """Click through every non-empty folder tab (besides the inbox) and process
         its candidates. Tabs are identified by their (stable) label, so the fact that
         the active tab stops being a <button> after a click doesn't shift our cursor."""
@@ -663,7 +668,7 @@ class SeekScraper:
                 log.warning("Could not open folder %r (count=%d): %s", label, count, exc)
                 continue
             log.info("Folder %r (count=%d): scraping ...", label, count)
-            yield from self._process_view(job, processed, limit, skip_ids)
+            yield from self._process_view(job, processed, limit, skip_keys)
 
     def _card_key(self, card) -> str | None:
         """A stable per-card id for dedup within a run. Prefer the Resumé button's
@@ -687,21 +692,6 @@ class SeekScraper:
         """The element id of the card's Resumé button (None if no resume)."""
         btn = card.query_selector(SELECTORS["card_resume_button"])
         return btn.get_attribute("id") if btn else None
-
-    def _card_application_id(self, card) -> str | None:
-        """The application_id (selected=<uuid>) read from the card's link WITHOUT
-        clicking — lets us skip already-downloaded candidates cheaply on re-runs.
-        Returns None when it can't be read cheaply, in which case the caller must
-        fall through to the normal click path (which derives it from page.url)."""
-        a = card.query_selector("a[href*='selected=']")
-        if a:
-            m = UUID_RE.search(a.get_attribute("href") or "")
-            if m:
-                return m.group(0)
-        # Fallback: _card_key is the application_id only when it's the Resumé-button
-        # UUID (not the numeric profile id) — accept it only if it is a UUID.
-        key = self._card_key(card)
-        return key if key and UUID_RE.fullmatch(key) else None
 
     def _card_name(self, card) -> str | None:
         """Candidate name from the card's 'Select candidate <name>' checkbox."""

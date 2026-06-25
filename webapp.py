@@ -21,13 +21,16 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 from config import load_config
 from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
                 ensure_schema)
-from email_kit.templates import (delete_template, get_template, load_templates,
-                                 render, render_group, render_interview, save_template)
+from email_kit.templates import (delete_template, get_template, load_settings,
+                                 load_templates, render, render_group, render_interview,
+                                 save_settings, save_template)
 import shortlist
 import evaluation
 import offer
 from mailer import GraphMailer, MailerError
-from summarizer import SummaryError, summarize_experience, summarize_resume
+from summarizer import (SummaryError, extract_resume_fields, load_majors,
+                        load_universities, summarize_experience,
+                        summarize_experience_headline, summarize_resume)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 app = Flask(__name__)
@@ -150,10 +153,17 @@ class ScrapeManager:
 scraper_mgr = ScrapeManager()
 
 
+def _user_prefix() -> str:
+    """The teammate's folder prefix configured on the Config Email page (e.g. 'Na').
+    Used to file sent exams / drafts into per-teammate mail folders and to suffix the
+    Email_Reply_Exam folders. '' when not set yet."""
+    return str(load_settings().get("user_prefix") or "").strip()
+
+
 class EmailAuth:
-    """Drives the one-time Microsoft Graph device-code sign-in for sending mail.
-    Sign-in blocks until the user enters the code, so it runs in a background thread
-    while the web UI polls /api/email/login-status."""
+    """Drives the one-time Microsoft Graph device-code sign-in for the shared Recruit
+    mailbox. Sign-in blocks until the user enters the code, so it runs in a background
+    thread while the web UI polls /api/email/login-status."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -220,6 +230,7 @@ def job_pipeline(job_id: str):
         return render_template("index.html"), 404
     return render_template("pipeline.html", job=job, stages=STAGE_LIST,
                            moves=ALLOWED_MOVES,
+                           universities=load_universities(), majors=load_majors(),
                            eval_options={
                                "positions": evaluation.POSITIONS,
                                "companies": evaluation.COMPANIES,
@@ -334,6 +345,49 @@ def api_candidate_summary():
     return jsonify({"ok": True, "summary": summary, "cached": False})
 
 
+@app.post("/api/candidates/extract")
+def api_candidate_extract():
+    """Return the ChatGPT structured résumé extraction (full_name, university,
+    major) for one candidate, generating + caching it on first request. Mirrors
+    /api/candidates/summary and is auto-triggered when a candidate enters the
+    "Wait Pre-screen" stage.
+
+    full_name overwrites full_name_edit server-side; university/major are returned
+    as suggestions for the card inputs (saved only when HR saves the candidate).
+
+    Body: {application_id, force?}. Pass force=true to regenerate."""
+    data = request.get_json(force=True)
+    aid = str(data.get("application_id", "")).strip()
+    force = bool(data.get("force"))
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        info = db.get_summary_inputs(aid)
+        if not info:
+            return jsonify({"ok": False, "error": "Candidate not found."}), 404
+        # Return the cached extraction unless a regenerate was explicitly requested.
+        if info.get("ai_extract_json") and not force:
+            try:
+                cached = json.loads(info["ai_extract_json"])
+            except ValueError:
+                cached = {}
+            return jsonify({"ok": True, "extract": cached, "cached": True})
+        if not info.get("resume_downloaded") or not info.get("resume_path"):
+            return jsonify({"ok": False, "error": "No resume on file to extract."}), 400
+        try:
+            extract = extract_resume_fields(
+                info["resume_path"],
+                candidate_name=info.get("full_name_edit") or info.get("full_name_jobdb") or "",
+                job_title=info.get("job_title") or "")
+        except SummaryError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+        db.save_ai_extract(aid, json.dumps(extract, ensure_ascii=False),
+                           full_name=extract.get("full_name"),
+                           exp_total=extract.get("exp_total"),
+                           exp_directly=extract.get("exp_directly"))
+    return jsonify({"ok": True, "extract": extract, "cached": False})
+
+
 def _utc_to_thai(iso_utc: str | None) -> str | None:
     """Graph UTC timestamp ('2026-06-08T03:21:00Z' / with fractions) → Thai-time
     'YYYY-MM-DD HH:MM:SS' string (UTC+7)."""
@@ -376,9 +430,11 @@ def api_candidate_check_reply():
 
         # exam_sent_at is naive Thai (UTC+7) → UTC floor for the Graph filter.
         since_utc = (info["exam_sent_at"] - timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        prefix = _user_prefix()
         try:
             mailer = GraphMailer(cfg)
-            hit = mailer.check_reply(info["email"], since_utc)
+            hit = mailer.check_reply(info["email"], since_utc,
+                                     sent_folder=f"{prefix}_Sent_Exam" if prefix else None)
         except MailerError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 502
 
@@ -396,7 +452,8 @@ def api_candidate_check_reply():
             name = info.get("full_name_edit") or info.get("full_name_jobdb") or aid
             try:
                 _, saved = shortlist.build_reply_folder(
-                    cfg.reply_exam_dir, name, info.get("resume_path"), atts)
+                    cfg.reply_exam_dir, name, info.get("resume_path"), atts,
+                    email_name=_user_prefix())
             except OSError as exc:
                 logging.warning("Reply folder build failed for %s: %s", aid, exc)
         db.save_reply_status(aid, replied, reply_at, subject)
@@ -457,6 +514,11 @@ def api_candidate_update():
             (data.get("phone") or "").strip(),
             (data.get("nickname") or "").strip(),
             (data.get("name_title") or "").strip(),
+            (data.get("university") or "").strip(),
+            (data.get("major") or "").strip(),
+            (data.get("remark") or "").strip(),
+            exp_total=(data.get("exp_total") or "").strip(),
+            exp_directly=(data.get("exp_directly") or "").strip(),
         )
     return jsonify({"ok": True})
 
@@ -504,13 +566,30 @@ def api_email_template_delete():
 
 @app.get("/api/email/login-status")
 def api_email_login_status():
+    """Sign-in snapshot for the shared Recruit mailbox."""
     return jsonify(email_auth.snapshot())
 
 
 @app.post("/api/email/login-start")
 def api_email_login_start():
+    """Begin the device-code sign-in for the shared Recruit mailbox."""
     email_auth.start()
     return jsonify(email_auth.snapshot())
+
+
+@app.get("/api/email/settings")
+def api_email_settings_get():
+    """Per-machine Config-Email settings (currently the teammate folder prefix)."""
+    return jsonify({"user_prefix": _user_prefix()})
+
+
+@app.post("/api/email/settings")
+def api_email_settings_save():
+    """Save the teammate folder prefix (e.g. 'Na'). Stored per-machine."""
+    data = request.get_json(force=True)
+    prefix = str(data.get("user_prefix", "") or "").strip()
+    saved = save_settings({"user_prefix": prefix})
+    return jsonify({"ok": True, "user_prefix": saved.get("user_prefix", "")})
 
 
 def _format_deadline(raw: str) -> str:
@@ -554,10 +633,13 @@ def api_candidate_send_exam():
             return jsonify({"ok": False, "error": "No email template configured."}), 400
         subject, body = render(
             tmpl, cand=db.get_candidate_fields(aid) or cand, deadline=deadline)
+        prefix = _user_prefix()
         try:
             GraphMailer(cfg).send(cand["email"], subject, body,
                                   attachment_paths=tmpl.get("attachments", []),
-                                  is_html=bool(tmpl.get("is_html")))
+                                  is_html=bool(tmpl.get("is_html")),
+                                  cc_emails=tmpl.get("cc", []),
+                                  sent_folder=f"{prefix}_Sent_Exam" if prefix else None)
         except MailerError as exc:
             # Block the move — surface the error so HR can fix and retry.
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -568,7 +650,8 @@ def api_candidate_send_exam():
         try:
             name = (cand.get("full_name_edit") or cand.get("full_name_jobdb") or aid)
             rp = db.get_resume_path(aid)
-            folder, _ = shortlist.build_reply_folder(cfg.reply_exam_dir, name, rp, [])
+            folder, _ = shortlist.build_reply_folder(
+                cfg.reply_exam_dir, name, rp, [], email_name=prefix)
             logging.info("Reply folder ready: %s", folder)
         except Exception as exc:  # noqa: BLE001 — folder is best-effort, never block the send
             logging.warning("Could not pre-create reply folder for %s: %s", aid, exc)
@@ -606,8 +689,8 @@ def api_candidate_interview_event():
     start = f"{day}T14:00:00"
     end = f"{day}T15:00:00"
     try:
-        GraphMailer(cfg).create_event(subject, body, start, end,
-                                      location="Online conference via MS Team")
+        GraphMailer(cfg).create_event(
+            subject, body, start, end, location="Online conference via MS Team")
     except MailerError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
     return jsonify({"ok": True})
@@ -656,9 +739,11 @@ def api_candidate_evaluation():
         #    blank so HR picks the interviewer's address in Outlook before sending.
         subject, body = evaluation.build_eval_email(
             prefix_name=prefix_name, interviewer=interviewer, position=position, role=role)
+        _prefix = _user_prefix()
         try:
-            GraphMailer(cfg).create_draft(subject, body, is_html=True,
-                                          attachment_paths=[str(out_path)])
+            GraphMailer(cfg).create_draft(
+                subject, body, is_html=True, attachment_paths=[str(out_path)],
+                folder=f"{_prefix}_Drafts" if _prefix else None)
         except MailerError as exc:
             return jsonify({"ok": False, "error":
                             f"Form created ({out_name}), but draft email failed: {exc}"}), 400
@@ -712,6 +797,41 @@ def api_candidate_offer_experience():
             return jsonify({"ok": False, "error": str(exc)}), 502
         db.save_offer_experience(aid, experience)
     return jsonify({"ok": True, "experience": experience, "cached": False})
+
+
+@app.post("/api/candidates/offer-headline")
+def api_candidate_offer_headline():
+    """Return the ChatGPT one-line experience HEADLINE for the offer popup's
+    "Experience (headline)" field — "<Position> <Company> <duration>, …" — generating
+    + caching it (in offer_experience) on first request. Prefers the résumé PDF;
+    falls back to the first-step summary. Body: {application_id, force?}. force=true
+    regenerates."""
+    data = request.get_json(force=True)
+    aid = str(data.get("application_id", "")).strip()
+    force = bool(data.get("force"))
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        info = db.get_experience_inputs(aid)
+        if not info:
+            return jsonify({"ok": False, "error": "Candidate not found."}), 404
+        # Return the cached headline unless a regenerate was explicitly requested.
+        if info.get("offer_experience") and not force:
+            return jsonify({"ok": True, "headline": info["offer_experience"], "cached": True})
+        if not (info.get("ai_summary") or
+                (info.get("resume_downloaded") and info.get("resume_path"))):
+            return jsonify({"ok": False, "error":
+                            "No résumé summary or résumé on file to base the experience on."}), 400
+        try:
+            headline = summarize_experience_headline(
+                ai_summary=info.get("ai_summary") or "",
+                resume_path=info.get("resume_path") or "",
+                candidate_name=info.get("full_name_edit") or info.get("full_name_jobdb") or "",
+                job_title=info.get("job_title") or "")
+        except SummaryError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+        db.save_offer_headline(aid, headline)
+    return jsonify({"ok": True, "headline": headline, "cached": False})
 
 
 def _find_shortlist_link(mailer: GraphMailer, shortlists_base: str,
@@ -785,8 +905,10 @@ def api_candidate_offer():
             recruiter_comments=_g("recruiter_comments"),
             link_text=prefix_name or name_edit, link_url=link_url,
             today_str=datetime.now().strftime("%d %b %Y"))
+        user_pfx = _user_prefix()
         try:
-            mailer.create_draft(subject, body, is_html=bool(offer_tmpl.get("is_html", True)))
+            mailer.create_draft(subject, body, is_html=bool(offer_tmpl.get("is_html", True)),
+                                folder=f"{user_pfx}_Drafts" if user_pfx else None)
         except MailerError as exc:
             return jsonify({"ok": False, "error": f"Draft email failed: {exc}"}), 400
 
@@ -855,6 +977,9 @@ def api_candidates_shortlist_email():
     # link works immediately (no waiting for local→cloud sync); then remove the local
     # source (= a move). Falls back to a pure local move if Graph/Files is unavailable.
     drive_base = cfg.shortlist_onedrive_dir
+    # Reply folders were named with the teammate prefix suffix at send time, so
+    # locate them with the same suffix.
+    email_name = _user_prefix()
     folder_name, link_url, copied = shortlist.folder_name_for(job_title), "", 0
     try:
         folder_name = shortlist.unique_folder_name(
@@ -862,11 +987,15 @@ def api_candidates_shortlist_email():
             lambda n: (Path(cfg.shortlist_dir) / n).exists() or mailer.path_exists(f"{drive_base}/{n}"))
         for c in cands:
             sub = shortlist.subfolder_name(c.get("name") or "")
-            srcdir = shortlist.candidate_dir(cfg.reply_exam_dir, c.get("name") or "")
+            srcdir = shortlist.candidate_dir(cfg.reply_exam_dir, c.get("name") or "", email_name)
             if srcdir:                                   # upload the whole reply folder
-                for f in sorted(srcdir.iterdir()):
+                # Recurse so nested subfolders are preserved (not just top-level
+                # files). rel keeps each file's path under the candidate subfolder,
+                # using forward slashes for the Graph drive path.
+                for f in sorted(srcdir.rglob("*")):
                     if f.is_file():
-                        mailer.upload_file(f"{drive_base}/{folder_name}/{sub}/{f.name}", f.read_bytes())
+                        rel = f.relative_to(srcdir).as_posix()
+                        mailer.upload_file(f"{drive_base}/{folder_name}/{sub}/{rel}", f.read_bytes())
                 shortlist.remove_dir(srcdir)             # source removed → moved
                 copied += 1
             else:                                        # no reply folder → résumé only
@@ -881,7 +1010,7 @@ def api_candidates_shortlist_email():
         logging.warning("OneDrive shortlist upload failed; using local move: %s", exc)
         try:
             folder_name, _, copied = shortlist.move_to_shortlist(
-                cfg.shortlist_dir, cfg.reply_exam_dir, job_title, cands)
+                cfg.shortlist_dir, cfg.reply_exam_dir, job_title, cands, email_name=email_name)
         except OSError as exc2:
             logging.warning("Local shortlist move also failed: %s", exc2)
         link_url = ""
@@ -893,7 +1022,8 @@ def api_candidates_shortlist_email():
         me = mailer.signed_in_account()       # draft addressed to the HR mailbox itself
         mailer.create_draft(subject, body,
                             to_recipients=[me] if me else None,
-                            is_html=bool(tmpl.get("is_html")))
+                            is_html=bool(tmpl.get("is_html")),
+                            folder=f"{email_name}_Drafts" if email_name else None)
     except MailerError as exc:
         return jsonify({"ok": False, "error": str(exc),
                         "folder": folder_name, "copied": copied}), 400

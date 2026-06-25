@@ -1,6 +1,6 @@
 # Secrets & local config
 .env
-.graph_token_cache.json
+.graph_token_cache*.json
 email_kit/email_template.json
 
 # Playwright session / browser state
@@ -12,7 +12,9 @@ storage_state.json
 __pycache__/
 *.pyc
 
-# Scraped output
+# Scraped / generated output (regenerated at runtime; may contain candidate PII)
 resume/
 debug/
 *.log
+Evaluation_Files/
+Report_Files/
