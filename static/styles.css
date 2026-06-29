@@ -219,6 +219,22 @@ a { color: inherit; text-decoration: none; }
 .cand-sub { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; word-break: break-all; }
 .cand-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 
+/* Card text inputs share the boxed, gold-outlined template (like the salary/exp pills):
+   a visible rounded border + filled background at rest, gold border on hover/focus. */
+.cand-name .cd-edit,
+.cand-sub2 .cd-phone,
+.cand-extra .cd-edit {
+  border-color: var(--gold-2); background: var(--bg-2);
+}
+.cand-name .cd-edit:hover,
+.cand-sub2 .cd-phone:hover,
+.cand-extra .cd-edit:hover,
+.cand-name .cd-edit:focus,
+.cand-sub2 .cd-phone:focus,
+.cand-extra .cd-edit:focus {
+  border-color: var(--gold); background: var(--bg-2);
+}
+
 /* ---- HR remark (editable on every stage card) ---- */
 .cand-remark { margin-top: 10px; }
 .cand-remark .cd-remark {
@@ -228,6 +244,32 @@ a { color: inherit; text-decoration: none; }
 }
 .cand-remark .cd-remark:focus { outline: none; border-color: var(--gold); color: var(--ink); }
 .cand-remark .cd-remark.saved { border-color: var(--green); background: var(--green-bg); }
+
+/* ---- HR-editable salary fields (Wait Pre-screen) ---- */
+.cand-salary { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sal-field { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  color: var(--ink-soft); padding: 2px 9px; border-radius: 999px;
+  background: rgba(212,175,55,.08); border: 1px solid var(--gold-2); }
+.sal-field .cd-sal { width: 72px; text-align: center; padding: 2px 4px; border-radius: 6px;
+  border: 1px solid var(--gold-2); background: var(--bg-2); color: var(--gold-2);
+  font-weight: 700; font-size: 12px; }
+.sal-field .cd-sal:focus { outline: none; border-color: var(--gold); }
+.sal-field .cd-sal.saved { border-color: var(--green); background: var(--green-bg); }
+
+/* ---- HR-editable interview date (Interview stage) ---- */
+.cand-idate { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.cand-idate .cd-idate { padding: 2px 6px; border-radius: 6px; border: 1px solid var(--gold-2);
+  background: var(--bg-2); color: var(--gold-2); font-weight: 700; font-size: 12px; }
+.cand-idate .cd-idate:focus { outline: none; border-color: var(--gold); }
+.cand-idate .cd-idate.saved { border-color: var(--green); background: var(--green-bg); }
+
+/* ---- editable hiring-request picker (Sent Exam / Shortlist / Interview) ---- */
+.cand-req { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.cand-req .cd-req { max-width: 320px; padding: 2px 6px; border-radius: 6px;
+  border: 1px solid var(--gold-2); background: var(--bg-2); color: var(--gold-2);
+  font-weight: 700; font-size: 12px; }
+.cand-req .cd-req:focus { outline: none; border-color: var(--gold); }
+.cand-req .cd-req.saved { border-color: var(--green); background: var(--green-bg); }
 /* Remark cell in the Status Tracking table */
 .remark-cell { min-width: 180px; resize: vertical; font: 13px/1.4 system-ui, "Segoe UI", Arial, sans-serif; }
 

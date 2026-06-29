@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<style>
+  /* ---- Hiring request form layout (mirrors the Config Email Template form) ---- */
+  .rq-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+              padding: 22px; box-shadow: var(--shadow); max-width: 760px; }
+  .rq-form label { display: block; font-size: 12.5px; color: var(--ink-soft); margin-bottom: 6px; }
+  .rq-form input[type=text], .rq-form input[type=number], .rq-form select {
+    width: 100%; box-sizing: border-box; background: var(--bg-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; font-size: 13.5px; }
+  .rq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+  @media (max-width: 620px){ .rq-grid { grid-template-columns: 1fr; } }
+  .rq-actions { display: flex; align-items: center; gap: 12px; margin-top: 22px;
+                border-top: 1px solid var(--line-soft); padding-top: 18px; }
+  #rqMsg { font-size: 13px; }
+  #rqMsg.ok  { color: var(--green); }
+  #rqMsg.err { color: var(--blue-soft); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo"></span> Recruitment</div>
+  <nav>
+    <a href="/">Job Postings</a>
+    <a href="/tracking">Status Tracking</a>
+    <a href="/request" class="active">Request</a>
+  </nav>
+</div>
+
+<div class="container full">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">{% if req %}Edit{% else %}Hiring{% endif %} <span class="accent">Request</span></h1>
+      <p class="page-sub">{% if req %}Editing request #{{ req.request_id }} — change the fields and save.{% else %}Submit a request to open or replace a position.{% endif %}</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn secondary" href="/requests">📋 View submitted requests</a>
+      <a class="btn secondary" href="/">← Back to Postings</a>
+    </div>
+  </div>
+
+  <div class="rq-panel">
+    <form class="rq-form" id="rqForm" onsubmit="return submitRequest(event)">
+      <div class="rq-grid">
+        <div>
+          <label for="request_code">Request code</label>
+          <input type="text" id="request_code" autocomplete="off" value="{{ req.request_code or '' }}">
+        </div>
+        <div>
+          <label for="request_name">Request name</label>
+          <input type="text" id="request_name" autocomplete="off" value="{{ req.request_name or '' }}">
+        </div>
+        <div>
+          <label for="position">Position</label>
+          <input type="text" id="position" list="positionList" autocomplete="off" placeholder="Type or pick…" value="{{ req.position or '' }}">
+          <datalist id="positionList">
+            {% for p in positions %}<option value="{{ p }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label for="is_new_replace">New / Replace</label>
+          <select id="is_new_replace">
+            <option value="">— select —</option>
+            <option value="New"{% if req and req.is_new_replace == 'New' %} selected{% endif %}>New</option>
+            <option value="Replace"{% if req and req.is_new_replace == 'Replace' %} selected{% endif %}>Replace</option>
+          </select>
+        </div>
+        <div>
+          <label for="type">Type</label>
+          <select id="type">
+            <option value="">— select —</option>
+            <option value="Permanent"{% if req and req.type == 'Permanent' %} selected{% endif %}>Permanent</option>
+            <option value="Contract"{% if req and req.type == 'Contract' %} selected{% endif %}>Contract</option>
+          </select>
+        </div>
+        <div>
+          <label for="company">Company</label>
+          <input type="text" id="company" list="companyList" autocomplete="off" placeholder="Type or pick…" value="{{ req.company or '' }}">
+          <datalist id="companyList">
+            {% for c in companies %}<option value="{{ c }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label for="department">Department</label>
+          <input type="text" id="department" list="departmentList" autocomplete="off" placeholder="Type or pick…" value="{{ req.department or '' }}">
+          <datalist id="departmentList">
+            {% for d in departments %}<option value="{{ d }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label for="section">Section</label>
+          <input type="text" id="section" list="sectionList" autocomplete="off" placeholder="Type or pick…" value="{{ req.section or '' }}">
+          <datalist id="sectionList">
+            {% for s in sections %}<option value="{{ s }}">{% endfor %}
+          </datalist>
+        </div>
+        <div>
+          <label for="direct_supervisor">Direct supervisor</label>
+          <input type="text" id="direct_supervisor" autocomplete="off" value="{{ req.direct_supervisor or '' }}">
+        </div>
+        <div>
+          <label for="buddy">Buddy</label>
+          <input type="text" id="buddy" autocomplete="off" value="{{ req.buddy or '' }}">
+        </div>
+        <div>
+          <label for="head_count">Head count</label>
+          <input type="number" id="head_count" min="1" step="1" autocomplete="off" value="{{ req.head_count or '' }}">
+        </div>
+        <div>
+          <label for="requested_by">Requested by</label>
+          <input type="text" id="requested_by" autocomplete="off" value="{{ req.requested_by or '' }}">
+        </div>
+        <div>
+          <label for="acknowledge_by_1">Acknowledge by 1</label>
+          <input type="text" id="acknowledge_by_1" autocomplete="off" value="{{ req.acknowledge_by_1 or '' }}">
+        </div>
+        <div>
+          <label for="acknowledge_by_2">Acknowledge by 2</label>
+          <input type="text" id="acknowledge_by_2" autocomplete="off" value="{{ req.acknowledge_by_2 or '' }}">
+        </div>
+        <div style="grid-column: 1 / -1">
+          <label for="reason">Reason</label>
+          <input type="text" id="reason" list="reasonList" autocomplete="off" placeholder="Type or pick…" value="{{ req.reason or '' }}">
+          <datalist id="reasonList">
+            {% for rs in reasons %}<option value="{{ rs }}">{% endfor %}
+          </datalist>
+        </div>
+      </div>
+
+      <div class="rq-actions">
+        <button class="btn" type="submit" id="rqSubmit">💾 {% if req %}Save changes{% else %}Submit request{% endif %}</button>
+        <span id="rqMsg"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const REQUEST_ID = {{ (req.request_id if req else None)|tojson }};
+async function submitRequest(ev){
+  ev.preventDefault();
+  const msg = document.getElementById("rqMsg");
+  const btn = document.getElementById("rqSubmit");
+  const v = id => (document.getElementById(id).value || "").trim();
+  const payload = {
+    request_code: v("request_code"),
+    request_name: v("request_name"),
+    position: v("position"),
+    is_new_replace: v("is_new_replace"),
+    company: v("company"),
+    department: v("department"),
+    section: v("section"),
+    direct_supervisor: v("direct_supervisor"),
+    buddy: v("buddy"),
+    head_count: v("head_count"),
+    type: v("type"),
+    reason: v("reason"),
+    requested_by: v("requested_by"),
+    acknowledge_by_1: v("acknowledge_by_1"),
+    acknowledge_by_2: v("acknowledge_by_2"),
+  };
+  msg.className = ""; msg.textContent = "";
+  btn.disabled = true;
+  try {
+    const url = REQUEST_ID ? ("/api/requests/" + REQUEST_ID) : "/api/requests";
+    const r = await fetch(url, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      msg.className = "ok";
+      if (REQUEST_ID) {
+        msg.textContent = "✓ Request updated. Redirecting…";
+        setTimeout(() => { window.location.href = "/requests"; }, 700);
+        return false;
+      }
+      msg.textContent = "✓ Request saved (#" + data.request_id + ").";
+      document.getElementById("rqForm").reset();
+    } else {
+      msg.className = "err";
+      msg.textContent = "✗ " + (data.error || "Could not save request.");
+    }
+  } catch (e) {
+    msg.className = "err";
+    msg.textContent = "✗ " + e;
+  } finally {
+    btn.disabled = false;
+  }
+  return false;
+}
+</script>
+</body>
+</html>

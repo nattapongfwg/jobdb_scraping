@@ -40,7 +40,45 @@ BEGIN
     );
 END;
 
+-- Hiring requests (submitted from the "Request" page on the Job Postings board).
+-- Standalone table: a manager records a request to open/replace a position.
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'requests')
+BEGIN
+    CREATE TABLE dbo.requests (
+        request_id        INT            NOT NULL IDENTITY(1,1) PRIMARY KEY,
+        request_code      NVARCHAR(100)  NULL,
+        request_name      NVARCHAR(200)  NULL,
+        [position]        NVARCHAR(200)  NULL,
+        is_new_replace    NVARCHAR(20)   NULL,   -- 'New' or 'Replace'
+        company           NVARCHAR(200)  NULL,
+        department        NVARCHAR(200)  NULL,
+        section           NVARCHAR(200)  NULL,
+        direct_supervisor NVARCHAR(200)  NULL,
+        buddy             NVARCHAR(200)  NULL,
+        head_count        INT            NULL,
+        [type]            NVARCHAR(20)   NULL,    -- 'Permanent' or 'Contract'
+        reason            NVARCHAR(1000) NULL,    -- free-text reason for the request
+        requested_by      NVARCHAR(200)  NULL,
+        acknowledge_by_1  NVARCHAR(200)  NULL,
+        acknowledge_by_2  NVARCHAR(200)  NULL,
+        created_at        DATETIME2      NOT NULL
+            DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)
+    );
+END;
+
 -- Add newer columns to pre-existing tables (idempotent).
+IF COL_LENGTH('dbo.requests', 'request_code') IS NULL
+    ALTER TABLE dbo.requests ADD request_code NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.requests', 'company') IS NULL
+    ALTER TABLE dbo.requests ADD company NVARCHAR(200) NULL;
+IF COL_LENGTH('dbo.requests', 'reason') IS NULL
+    ALTER TABLE dbo.requests ADD reason NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.requests', 'requested_by') IS NULL
+    ALTER TABLE dbo.requests ADD requested_by NVARCHAR(200) NULL;
+IF COL_LENGTH('dbo.requests', 'acknowledge_by_1') IS NULL
+    ALTER TABLE dbo.requests ADD acknowledge_by_1 NVARCHAR(200) NULL;
+IF COL_LENGTH('dbo.requests', 'acknowledge_by_2') IS NULL
+    ALTER TABLE dbo.requests ADD acknowledge_by_2 NVARCHAR(200) NULL;
 IF COL_LENGTH('dbo.jobs', 'is_active') IS NULL
     ALTER TABLE dbo.jobs ADD is_active BIT NOT NULL DEFAULT 1;
 IF COL_LENGTH('dbo.applicants', 'is_sent_exam') IS NULL
@@ -185,6 +223,18 @@ IF COL_LENGTH('dbo.applicants', 'exp_total') IS NULL
     ALTER TABLE dbo.applicants ADD exp_total DECIMAL(5,2) NULL;
 IF COL_LENGTH('dbo.applicants', 'exp_directly') IS NULL
     ALTER TABLE dbo.applicants ADD exp_directly DECIMAL(5,2) NULL;
+-- HR-editable salary fields captured at "Wait Pre-screen" (free text like expect_salary, e.g. '30K').
+IF COL_LENGTH('dbo.applicants', 'current_salary_edit') IS NULL
+    ALTER TABLE dbo.applicants ADD current_salary_edit NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.applicants', 'minimum_expect_salary_edit') IS NULL
+    ALTER TABLE dbo.applicants ADD minimum_expect_salary_edit NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.applicants', 'expect_salary_edit') IS NULL
+    ALTER TABLE dbo.applicants ADD expect_salary_edit NVARCHAR(100) NULL;
+-- Hiring request a candidate is linked to (chosen at Wait Pre-screen, editable on
+-- Sent Exam / Shortlist / Interview cards). Picking one fills position/company/
+-- department/section (+ role from the job title) — see db.set_request_fields.
+IF COL_LENGTH('dbo.applicants', 'request_id') IS NULL
+    ALTER TABLE dbo.applicants ADD request_id INT NULL;
 GO
 
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet

@@ -27,6 +27,7 @@ from email_kit.templates import (delete_template, get_template, load_settings,
 import shortlist
 import evaluation
 import offer
+import report
 from mailer import GraphMailer, MailerError
 from summarizer import (SummaryError, extract_resume_fields, load_majors,
                         load_universities, summarize_experience,
@@ -221,6 +222,31 @@ def email_templates_page():
     return render_template("email_templates.html")
 
 
+@app.get("/request")
+def request_page():
+    """Hiring-request form page. With ?id=<n> it loads that request for editing
+    (pre-fills the form); otherwise it's a blank new-request form.
+    position/department/section reuse the Evaluation popup's canonical lists;
+    reason reuses the Offer flow's NEW_REPLACE_OPTIONS."""
+    rid = request.args.get("id", "").strip()
+    req = None
+    if rid.isdigit():
+        with Database(cfg) as db:
+            req = db.get_request(int(rid))
+    return render_template("request.html", req=req,
+                           positions=evaluation.POSITIONS,
+                           companies=evaluation.COMPANIES,
+                           departments=evaluation.DEPARTMENTS,
+                           sections=evaluation.SECTIONS,
+                           reasons=offer.NEW_REPLACE_OPTIONS)
+
+
+@app.get("/requests")
+def requests_page():
+    """List of submitted hiring requests."""
+    return render_template("requests.html")
+
+
 @app.route("/job/<job_id>")
 def job_pipeline(job_id: str):
     """Candidate pipeline board for one job posting."""
@@ -288,6 +314,27 @@ def api_tracking():
     q = request.args.get("q", "").strip()
     with Database(cfg) as db:
         return jsonify(db.list_all_candidates(job_id, stage, q))
+
+
+# Stages excluded from the export: the funnel report covers only candidates who
+# entered the pipeline (Wait Pre-screen onward), not Pending or Not Interest.
+_EXPORT_SKIP_STAGES = {"not_interest", "prescreen"}
+
+
+@app.get("/api/tracking/export")
+def api_tracking_export():
+    """Export the Status-Tracking report (Excel) for one job title — pipeline
+    candidates only — saved to Report_Files/ and returned as a download."""
+    job_id = request.args.get("job_id", "").strip()
+    if not job_id:
+        return jsonify({"ok": False, "error": "Select a Job title to export."}), 400
+    with Database(cfg) as db:
+        rows = db.list_all_candidates(job_id)
+        job = db.get_job(job_id)
+    rows = [c for c in rows if (c.get("stage") or "prescreen") not in _EXPORT_SKIP_STAGES]
+    job_title = (job or {}).get("title") or "Report"
+    path = report.build_report(rows, job_title)
+    return send_file(path, as_attachment=True, download_name=path.name)
 
 
 @app.post("/api/candidates/stage")
@@ -519,6 +566,31 @@ def api_candidate_update():
             (data.get("remark") or "").strip(),
             exp_total=(data.get("exp_total") or "").strip(),
             exp_directly=(data.get("exp_directly") or "").strip(),
+            current_salary_edit=(data.get("current_salary_edit") or "").strip(),
+            minimum_expect_salary_edit=(data.get("minimum_expect_salary_edit") or "").strip(),
+            expect_salary_edit=(data.get("expect_salary_edit") or "").strip(),
+            interview_date=(data.get("interview_date") or "").strip(),
+        )
+    return jsonify({"ok": True})
+
+
+@app.post("/api/candidates/request-fields")
+def api_candidate_request_fields():
+    """Record the Position/Role/Company/Department/Section from the hiring request
+    chosen when a candidate moves Pending -> Wait Pre-screen."""
+    data = request.get_json(force=True)
+    aid = str(data.get("application_id", "")).strip()
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        db.set_request_fields(
+            aid,
+            request_id=data.get("request_id"),
+            position=(data.get("position") or "").strip(),
+            role=(data.get("role") or "").strip(),
+            company=(data.get("company") or "").strip(),
+            department=(data.get("department") or "").strip(),
+            section=(data.get("section") or "").strip(),
         )
     return jsonify({"ok": True})
 
@@ -590,6 +662,66 @@ def api_email_settings_save():
     prefix = str(data.get("user_prefix", "") or "").strip()
     saved = save_settings({"user_prefix": prefix})
     return jsonify({"ok": True, "user_prefix": saved.get("user_prefix", "")})
+
+
+@app.get("/api/requests")
+def api_requests_list():
+    """All submitted hiring requests, newest first."""
+    with Database(cfg) as db:
+        rows = db.list_requests()
+    for r in rows:
+        ca = r.get("created_at")
+        r["created_at"] = ca.strftime("%Y-%m-%d %H:%M") if ca is not None else ""
+    return jsonify({"requests": rows})
+
+
+def _request_fields(data: dict) -> tuple[dict | None, str | None]:
+    """Extract + validate the hiring-request fields from a JSON body. Returns
+    (fields, None) on success or (None, error) if a constrained value is invalid.
+    The fields dict matches db.insert_request/update_request keyword args."""
+    def _g(k: str) -> str:
+        return str(data.get(k, "") or "").strip()
+
+    inr = _g("is_new_replace")
+    if inr and inr not in ("New", "Replace"):
+        return None, "is_new_replace must be New or Replace."
+    rtype = _g("type")
+    if rtype and rtype not in ("Permanent", "Contract"):
+        return None, "type must be Permanent or Contract."
+    return {
+        "request_code": _g("request_code"), "request_name": _g("request_name"),
+        "position": _g("position"), "is_new_replace": inr, "company": _g("company"),
+        "department": _g("department"), "section": _g("section"),
+        "direct_supervisor": _g("direct_supervisor"), "buddy": _g("buddy"),
+        "head_count": _g("head_count"), "type_": rtype, "reason": _g("reason"),
+        "requested_by": _g("requested_by"),
+        "acknowledge_by_1": _g("acknowledge_by_1"),
+        "acknowledge_by_2": _g("acknowledge_by_2"),
+    }, None
+
+
+@app.post("/api/requests")
+def api_requests_save():
+    """Save one NEW hiring request from the Request page to dbo.requests."""
+    fields, err = _request_fields(request.get_json(force=True))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    with Database(cfg) as db:
+        rid = db.insert_request(**fields)
+    return jsonify({"ok": True, "request_id": rid})
+
+
+@app.post("/api/requests/<int:rid>")
+def api_requests_update(rid: int):
+    """Update an existing hiring request (edit from the Request page)."""
+    fields, err = _request_fields(request.get_json(force=True))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    with Database(cfg) as db:
+        ok = db.update_request(rid, **fields)
+    if not ok:
+        return jsonify({"ok": False, "error": "Request not found."}), 404
+    return jsonify({"ok": True, "request_id": rid})
 
 
 def _format_deadline(raw: str) -> str:
@@ -666,7 +798,9 @@ def api_candidate_interview_event():
     """Create an interview calendar-event draft (on the signed-in user's calendar)
     for one candidate. Body: {application_id, template_id?}. The event has a
     placeholder time (tomorrow 14:00–15:00 Thai) and no attendees — HR edits the
-    time, adds attendees, and sends from Outlook."""
+    time, adds attendees, and sends from Outlook. The default optional-attendee
+    addresses (3 internal + the candidate's email) are listed in the event body
+    for quick copy, since Graph can't pre-fill attendees without sending."""
     data = request.get_json(force=True)
     aid = str(data.get("application_id", "")).strip()
     if not aid:
@@ -684,6 +818,21 @@ def api_candidate_interview_event():
         return jsonify({"ok": False, "error": "No interview template configured."}), 400
 
     subject, body = render_interview(tmpl, cand=cand)
+    # Default optional attendees. Graph can't pre-fill attendees on a calendar
+    # event without firing the invite immediately (sendInvitationMessage isn't
+    # supported), so to keep this a true no-invite draft we surface the addresses
+    # in the body — HR copies them into the Optional line in Outlook, then sends.
+    optional_attendees = [
+        "Tanakrit_Jai@FreewillSolutions.com",
+        "Suttharinthon_tap@freewillsolutions.com",
+        "Nattapong_Yuw@freewillsolutions.com",
+    ]
+    cand_email = (cand.get("email") or "").strip()
+    if cand_email:
+        optional_attendees.append(cand_email)
+    body += ('<p style="margin:16px 0 0;color:#666;font-size:12px">'
+             '<b>Optional attendees</b> (add in Outlook before sending):<br>'
+             + "; ".join(optional_attendees) + '</p>')
     # Placeholder slot (HR edits it): tomorrow 14:00–15:00, Thailand local time.
     day = (datetime.now() + timedelta(days=1)).date()
     start = f"{day}T14:00:00"
@@ -753,7 +902,7 @@ def api_candidate_evaluation():
             aid, position=position, role=role, company=_g("company"),
             department=_g("department"), section=section,
             interview_date=interview_date or None, interviewer=interviewer,
-            recruiter_name=_g("recruiter"))
+            recruiter_name=_g("recruiter"), request_id=data.get("request_id"))
 
         # 4) advance to Evaluation (records evaluation_date = the interview date picked).
         res = db.set_stage(aid, "evaluation", interview_date or None)

@@ -36,6 +36,17 @@ def _years_or_none(v: Any) -> float | None:
         return None
 
 
+def _int_or_none(v: Any) -> int | None:
+    """Coerce a value (1, '1', '') to an int for the INT columns, or None."""
+    s = str(v if v is not None else "").strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
 def candidate_key(app: dict[str, Any]) -> str | None:
     """Stable per-candidate identity within a job, used for deduping across
     re-scrapes. SEEK's application_id (selected=<uuid>) is regenerated every
@@ -354,7 +365,9 @@ class Database:
         "evaluation_stamped_date, offered_stamped_date, "                           # r[33]-r[34] (stage entry stamps)
         "university, major, ai_extract_json, "                                      # r[35]-r[37] (AI résumé extraction)
         "remark, "                                                                   # r[38] (HR free-text note)
-        "exp_total, exp_directly"                                                    # r[39]-r[40] (AI experience, years)
+        "exp_total, exp_directly, "                                                  # r[39]-r[40] (AI experience, years)
+        "current_salary_edit, minimum_expect_salary_edit, expect_salary_edit, "      # r[41]-r[43] (HR salary fields)
+        "request_id"                                                                 # r[44] (linked hiring request)
     )
 
     @staticmethod
@@ -388,6 +401,9 @@ class Database:
             "university": r[35], "major": r[36], "ai_extract_json": r[37],
             "remark": r[38],
             "exp_total": _dec(r[39]), "exp_directly": _dec(r[40]),
+            "current_salary_edit": r[41], "minimum_expect_salary_edit": r[42],
+            "expect_salary_edit": r[43],
+            "request_id": r[44],
         }
 
     def list_candidates(self, job_id: str, name_query: str = "") -> list[dict[str, Any]]:
@@ -604,35 +620,146 @@ class Database:
                          university: str | None = None,
                          major: str | None = None,
                          remark: str | None = None,
-                         exp_total: Any = None, exp_directly: Any = None) -> None:
+                         exp_total: Any = None, exp_directly: Any = None,
+                         current_salary_edit: str | None = None,
+                         minimum_expect_salary_edit: str | None = None,
+                         expect_salary_edit: str | None = None,
+                         interview_date: str | None = None) -> None:
         """Update the user-editable fields for one candidate. exp_total/exp_directly
-        are the (HR-editable) AI experience years — coerced to a number or NULL."""
+        are the (HR-editable) AI experience years — coerced to a number or NULL.
+        interview_date is HR-editable on the Interview-stage card (the Evaluation
+        form reuses it); blank leaves it cleared."""
         self.conn.cursor().execute(
             "UPDATE dbo.applicants SET full_name_edit = ?, email = ?, phone = ?, "
             "nickname = ?, name_title = ?, university = ?, major = ?, remark = ?, "
-            "exp_total = ?, exp_directly = ? "
+            "exp_total = ?, exp_directly = ?, current_salary_edit = ?, "
+            "minimum_expect_salary_edit = ?, expect_salary_edit = ?, interview_date = ? "
             "WHERE application_id = ?",
             (full_name_edit or None), (email or None), (phone or None),
             (nickname or None), (name_title or None),
             (university or None), (major or None), ((remark or "")[:1000] or None),
             _years_or_none(exp_total), _years_or_none(exp_directly),
+            (current_salary_edit or None), (minimum_expect_salary_edit or None),
+            (expect_salary_edit or None), (interview_date or None),
             application_id)
         self.conn.commit()
 
     def save_evaluation(self, application_id: str, *, position: str | None,
                         role: str | None, company: str | None, department: str | None,
                         section: str | None, interview_date: str | None,
-                        interviewer: str | None, recruiter_name: str | None) -> None:
+                        interviewer: str | None, recruiter_name: str | None,
+                        request_id: Any = None) -> None:
         """Persist the interview-evaluation form fields captured from the popup.
-        `interview_date` reuses the existing interview_date column."""
+        `interview_date` reuses the existing interview_date column. `request_id`
+        keeps the candidate's linked hiring request in sync if HR changed it."""
         self.conn.cursor().execute(
             "UPDATE dbo.applicants SET [position] = ?, [role] = ?, company = ?, "
             "department = ?, section = ?, interview_date = ?, interviewer = ?, "
-            "recruiter_name = ? WHERE application_id = ?",
+            "recruiter_name = ?, request_id = ? WHERE application_id = ?",
             (position or None), (role or None), (company or None), (department or None),
             (section or None), (interview_date or None), (interviewer or None),
-            (recruiter_name or None), application_id)
+            (recruiter_name or None), _int_or_none(request_id), application_id)
         self.conn.commit()
+
+    def set_request_fields(self, application_id: str, *, request_id: Any = None,
+                           position: str | None, role: str | None,
+                           company: str | None, department: str | None,
+                           section: str | None) -> None:
+        """Link a candidate to a hiring request and copy its
+        Position/Role/Company/Department/Section onto the candidate. Chosen at Wait
+        Pre-screen and editable on the Sent Exam / Shortlist / Interview cards;
+        request_id is stored so those dropdowns can show the current selection.
+        head-less role comes from the job title (the request has no role)."""
+        self.conn.cursor().execute(
+            "UPDATE dbo.applicants SET request_id = ?, [position] = ?, [role] = ?, "
+            "company = ?, department = ?, section = ? WHERE application_id = ?",
+            _int_or_none(request_id), (position or None), (role or None), (company or None),
+            (department or None), (section or None), application_id)
+        self.conn.commit()
+
+    def insert_request(self, *, request_code: str | None, request_name: str | None,
+                       position: str | None, is_new_replace: str | None,
+                       company: str | None, department: str | None, section: str | None,
+                       direct_supervisor: str | None, buddy: str | None,
+                       head_count: Any, type_: str | None, reason: str | None,
+                       requested_by: str | None, acknowledge_by_1: str | None,
+                       acknowledge_by_2: str | None) -> int:
+        """Insert one hiring request (from the Request page). head_count is coerced
+        to an int or NULL. Returns the new request_id."""
+        try:
+            hc = int(str(head_count).strip()) if str(head_count or "").strip() else None
+        except (TypeError, ValueError):
+            hc = None
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT INTO dbo.requests (request_code, request_name, [position], "
+            "is_new_replace, company, department, section, direct_supervisor, buddy, "
+            "head_count, [type], reason, requested_by, acknowledge_by_1, acknowledge_by_2) "
+            "OUTPUT INSERTED.request_id "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (request_code or None), (request_name or None), (position or None),
+            (is_new_replace or None), (company or None), (department or None),
+            (section or None), (direct_supervisor or None), (buddy or None), hc,
+            (type_ or None), (reason or None), (requested_by or None),
+            (acknowledge_by_1 or None), (acknowledge_by_2 or None))
+        new_id = cur.fetchone()[0]
+        self.conn.commit()
+        return int(new_id)
+
+    def list_requests(self) -> list[dict[str, Any]]:
+        """All hiring requests, newest first (for the Requests list page)."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT request_id, request_code, request_name, [position], is_new_replace, "
+            "company, department, section, direct_supervisor, buddy, head_count, [type], "
+            "reason, requested_by, acknowledge_by_1, acknowledge_by_2, created_at "
+            "FROM dbo.requests ORDER BY request_id DESC")
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    def get_request(self, request_id: int) -> dict[str, Any] | None:
+        """One hiring request by id (for pre-filling the edit form), or None."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT request_id, request_code, request_name, [position], is_new_replace, "
+            "company, department, section, direct_supervisor, buddy, head_count, [type], "
+            "reason, requested_by, acknowledge_by_1, acknowledge_by_2, created_at "
+            "FROM dbo.requests WHERE request_id = ?", request_id)
+        r = cur.fetchone()
+        if not r:
+            return None
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, r))
+
+    def update_request(self, request_id: int, *, request_code: str | None,
+                       request_name: str | None, position: str | None,
+                       is_new_replace: str | None, company: str | None,
+                       department: str | None, section: str | None,
+                       direct_supervisor: str | None, buddy: str | None,
+                       head_count: Any, type_: str | None, reason: str | None,
+                       requested_by: str | None, acknowledge_by_1: str | None,
+                       acknowledge_by_2: str | None) -> bool:
+        """Update one hiring request. head_count is coerced to an int or NULL.
+        Returns True if a row was updated (False if the id didn't exist)."""
+        try:
+            hc = int(str(head_count).strip()) if str(head_count or "").strip() else None
+        except (TypeError, ValueError):
+            hc = None
+        cur = self.conn.cursor()
+        cur.execute(
+            "UPDATE dbo.requests SET request_code = ?, request_name = ?, [position] = ?, "
+            "is_new_replace = ?, company = ?, department = ?, section = ?, "
+            "direct_supervisor = ?, buddy = ?, head_count = ?, [type] = ?, reason = ?, "
+            "requested_by = ?, acknowledge_by_1 = ?, acknowledge_by_2 = ? "
+            "WHERE request_id = ?",
+            (request_code or None), (request_name or None), (position or None),
+            (is_new_replace or None), (company or None), (department or None),
+            (section or None), (direct_supervisor or None), (buddy or None), hc,
+            (type_ or None), (reason or None), (requested_by or None),
+            (acknowledge_by_1 or None), (acknowledge_by_2 or None), request_id)
+        updated = cur.rowcount
+        self.conn.commit()
+        return updated > 0
 
     def get_resume_path(self, application_id: str) -> str | None:
         """Return the stored resume file path for one candidate (or None)."""

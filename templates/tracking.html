@@ -39,6 +39,7 @@
         <input type="text" id="search" placeholder="Type a name…">
       </div>
       <button class="btn ghost" onclick="clearFilters()">Clear filters</button>
+      <button class="btn" onclick="exportExcel()" title="Export this job title's pipeline candidates to Excel">⬇ Export Excel</button>
       <span id="count" class="muted" style="margin-left:auto"></span>
     </div>
 
@@ -173,9 +174,19 @@ async function onEdit(e){
   const get = f => row.querySelector(`.edit[data-f="${f}"]`).value.trim();
   const phoneInp = row.querySelector('.edit[data-f="phone"]');
   phoneInp.value = fmtPhone(phoneInp.value);   // normalize what's shown + saved
-  const payload = {application_id:id, full_name_edit:get("full_name_edit"), nickname:get("nickname"), email:get("email"), phone:get("phone"), name_title:get("name_title"), remark:get("remark")};
-  const local = candidates.find(c => c.application_id===id);
-  if(local){ local.full_name_edit=payload.full_name_edit; local.nickname=payload.nickname; local.email=payload.email; local.phone=payload.phone; local.name_title=payload.name_title; local.remark=payload.remark; }
+  const local = candidates.find(c => c.application_id===id) || {};
+  // Send the editable fields, plus the fields not shown on this page sourced from
+  // the local row — the shared update endpoint rewrites every column, so omitting
+  // them would blank university/major/exp/salary.
+  const payload = {application_id:id, full_name_edit:get("full_name_edit"), nickname:get("nickname"),
+    email:get("email"), phone:get("phone"), name_title:get("name_title"), remark:get("remark"),
+    university:local.university||"", major:local.major||"",
+    exp_total:local.exp_total||"", exp_directly:local.exp_directly||"",
+    current_salary_edit:local.current_salary_edit||"",
+    minimum_expect_salary_edit:local.minimum_expect_salary_edit||"",
+    expect_salary_edit:local.expect_salary_edit||"",
+    interview_date:local.interview_date||""};
+  if(local.application_id){ local.full_name_edit=payload.full_name_edit; local.nickname=payload.nickname; local.email=payload.email; local.phone=payload.phone; local.name_title=payload.name_title; local.remark=payload.remark; }
   try {
     const r = await (await fetch("/api/candidates/update", {method:"POST",
       headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)})).json();
@@ -186,6 +197,15 @@ async function onEdit(e){
 
 function clearFilters(){ $("#jobFilter").value=""; $("#stageFilter").value=""; $("#search").value=""; load(); }
 window.clearFilters = clearFilters;
+
+// Export the selected job title's pipeline candidates to Excel (saved to Report_Files/
+// and downloaded). Requires a job title — the report filename is built from it.
+function exportExcel(){
+  const job = $("#jobFilter").value;
+  if(!job){ toast("Select a Job title to export.", 4000); return; }
+  window.location = `/api/tracking/export?job_id=${encodeURIComponent(job)}`;
+}
+window.exportExcel = exportExcel;
 
 $("#jobFilter").addEventListener("change", load);
 $("#stageFilter").addEventListener("change", load);

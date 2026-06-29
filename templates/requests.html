@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submitted Requests — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo"></span> Recruitment</div>
+  <nav>
+    <a href="/">Job Postings</a>
+    <a href="/tracking">Status Tracking</a>
+    <a href="/requests" class="active">Requests</a>
+  </nav>
+</div>
+
+<div class="container full">
+  <div class="page-head">
+    <div>
+      <h1 class="page-title">Submitted <span class="accent">Requests</span></h1>
+      <p class="page-sub">All hiring requests, newest first.</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn" href="/request">📝 New request</a>
+      <a class="btn secondary" href="/">← Back to Postings</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <div class="filter-group">
+        <label for="search">Search</label>
+        <input type="text" id="search" placeholder="Name, position, department…">
+      </div>
+      <button class="btn ghost" onclick="clearFilters()">Clear</button>
+      <span id="count" class="muted" style="margin-left:auto"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>#</th>
+          <th>Code</th>
+          <th>Request name</th>
+          <th>Position</th>
+          <th>New / Replace</th>
+          <th>Type</th>
+          <th>Company</th>
+          <th>Department</th>
+          <th>Section</th>
+          <th>Direct supervisor</th>
+          <th>Buddy</th>
+          <th>Head count</th>
+          <th>Reason</th>
+          <th>Requested by</th>
+          <th>Acknowledge 1</th>
+          <th>Acknowledge 2</th>
+          <th>Submitted</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="18" class="muted" style="padding:16px">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => (s??"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const tcell = v => (v!=null && v!=="") ? esc(v) : `<span class="muted">—</span>`;
+let requests = [];
+
+async function load(){
+  const data = await (await fetch("/api/requests")).json();
+  requests = data.requests || [];
+  render();
+}
+
+function filtered(){
+  const q = $("#search").value.trim().toLowerCase();
+  if(!q) return requests;
+  return requests.filter(r => [r.request_code, r.request_name, r.position, r.company,
+    r.department, r.section, r.direct_supervisor, r.buddy, r.is_new_replace, r.type,
+    r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2]
+    .some(v => (v||"").toString().toLowerCase().includes(q)));
+}
+
+function render(){
+  const rows = filtered();
+  $("#count").textContent = `${rows.length} request${rows.length!==1?"s":""}`;
+  const tbody = $("#rows");
+  if(!rows.length){ tbody.innerHTML = `<tr><td colspan="18" class="muted" style="padding:16px">No requests yet.</td></tr>`; return; }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td>${esc(r.request_id)}</td>
+    <td>${tcell(r.request_code)}</td>
+    <td>${tcell(r.request_name)}</td>
+    <td>${tcell(r.position)}</td>
+    <td>${tcell(r.is_new_replace)}</td>
+    <td>${tcell(r.type)}</td>
+    <td>${tcell(r.company)}</td>
+    <td>${tcell(r.department)}</td>
+    <td>${tcell(r.section)}</td>
+    <td>${tcell(r.direct_supervisor)}</td>
+    <td>${tcell(r.buddy)}</td>
+    <td>${tcell(r.head_count)}</td>
+    <td>${tcell(r.reason)}</td>
+    <td>${tcell(r.requested_by)}</td>
+    <td>${tcell(r.acknowledge_by_1)}</td>
+    <td>${tcell(r.acknowledge_by_2)}</td>
+    <td>${tcell(r.created_at)}</td>
+    <td><a class="btn ghost" href="/request?id=${esc(r.request_id)}">✏ Edit</a></td>
+  </tr>`).join("");
+}
+
+function clearFilters(){ $("#search").value=""; render(); }
+window.clearFilters = clearFilters;
+$("#search").addEventListener("input", ()=>{ clearTimeout(window._s); window._s=setTimeout(render, 200); });
+
+load();
+</script>
+<script src="{{ url_for('static', filename='fantasy.js') }}"></script>
+</body>
+</html>

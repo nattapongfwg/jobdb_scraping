@@ -51,6 +51,21 @@
     </div>
   </div>
 </div>
+
+<!-- pre-screen request modal (Pending → Wait Pre-screen: pick a Request to record its fields) -->
+<div class="modal-overlay" id="prescreenModal">
+  <div class="modal">
+    <h3>📋 Select Request</h3>
+    <p id="psDesc"></p>
+    <label for="psRequest">ใบขอกำลังคน (Request) — records Position / Role / Company / Department / Section</label>
+    <select id="psRequest"></select>
+    <p id="psPreview" class="muted" style="font-size:12px;margin-top:10px"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closePrescreenModal()">Cancel</button>
+      <button class="btn" id="psBtn" onclick="confirmPrescreen()" disabled>Confirm &amp; move</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <!-- send-exam modal (Move to Sent Exam: pick a deadline, email the candidate, then advance) -->
@@ -82,6 +97,8 @@
     <div class="cfg-grid">
       <label style="grid-column:1/3">ชื่อ-นามสกุล (Name)
         <input type="text" id="evName" readonly></label>
+      <label style="grid-column:1/3">ใบขอกำลังคน (Request) — auto-fills Position / Company / Department / Section
+        <select id="evRequest"></select></label>
       <label>ตำแหน่งที่สมัคร (Position)
         <select id="evPosition"></select></label>
       <label>บทบาท (Role)
@@ -313,6 +330,9 @@ function requestMove(id, stageKey){
       applyMove(id, stageKey, null);
     return;
   }
+  // Moving to Wait Pre-screen: pick a hiring Request first, recording its
+  // Position/Role/Company/Department/Section onto the candidate.
+  if(stageKey==="wait_prescreen"){ openPrescreenModal(id); return; }
   // Moving to Sent Exam emails the candidate first (deadline modal).
   if(stageKey==="sent_exam"){ openExamModal(id); return; }
   // Moving to Interview creates a calendar-event draft (no date prompt).
@@ -340,6 +360,63 @@ function requestMove(id, stageKey){
 }
 window.requestMove = requestMove;
 
+/* ---------- Pre-screen: pick a Request → record its fields, then move ---------- */
+let pendingPrescreen = null;
+async function openPrescreenModal(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  pendingPrescreen = id;
+  const name = c.full_name_edit || c.full_name_jobdb || "this candidate";
+  $("#psDesc").innerHTML = `<b>${esc(name)}</b> → Wait Pre-screen`;
+  await ensureRequests();
+  fillRequestSelect($("#psRequest"));
+  $("#psPreview").textContent = "";
+  $("#psBtn").disabled = true;                 // a Request must be chosen to confirm
+  $("#psRequest").onchange = onPrescreenRequestChange;
+  $("#prescreenModal").classList.add("open");
+}
+window.openPrescreenModal = openPrescreenModal;
+function closePrescreenModal(){ pendingPrescreen=null; $("#prescreenModal").classList.remove("open"); }
+window.closePrescreenModal = closePrescreenModal;
+
+function psSelectedRequest(){
+  return (REQUESTS||[]).find(r => String(r.request_id) === $("#psRequest").value);
+}
+// Role isn't on a Request, so it mirrors the eval form: the candidate's job title.
+function psRole(c){ return (c && (c.job_title || JOB_TITLE)) || ""; }
+function onPrescreenRequestChange(){
+  const req = psSelectedRequest();
+  $("#psBtn").disabled = !req;
+  if(!req){ $("#psPreview").textContent = ""; return; }
+  const c = candidates.find(x => x.application_id===pendingPrescreen);
+  $("#psPreview").innerHTML = `Will record — Position: <b>${esc(req.position||"—")}</b>, `
+    + `Role: <b>${esc(psRole(c)||"—")}</b>, Company: <b>${esc(req.company||"—")}</b>, `
+    + `Department: <b>${esc(req.department||"—")}</b>, Section: <b>${esc(req.section||"—")}</b>`;
+}
+
+async function confirmPrescreen(){
+  if(!pendingPrescreen) return;
+  const id = pendingPrescreen, req = psSelectedRequest();
+  if(!req) return;
+  const c = candidates.find(x => x.application_id===id);
+  const fields = {request_id:req.request_id, position:req.position||"", role:psRole(c),
+                  company:req.company||"", department:req.department||"", section:req.section||""};
+  const btn = $("#psBtn"); btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const r = await (await fetch("/api/candidates/request-fields", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, ...fields})})).json();
+    if(!r.ok) throw new Error(r.error || "save failed");
+    if(c){ c.request_id=fields.request_id; c.position=fields.position; c.role=fields.role;
+           c.company=fields.company; c.department=fields.department; c.section=fields.section; }
+    closePrescreenModal();
+    await applyMove(id, "wait_prescreen", null);   // existing move (triggers AI summary/extract)
+  } catch(e){
+    toast("Could not save request fields: "+e.message, 6000);
+    btn.disabled = false; btn.textContent = "Confirm & move";
+  }
+}
+window.confirmPrescreen = confirmPrescreen;
+
 // Move to Interview (no date prompt) + create an Outlook calendar-event draft.
 async function moveToInterview(id){
   try {
@@ -362,7 +439,36 @@ function fillSelect(el, opts, sel){
   el.innerHTML = `<option value="">— select —</option>` +
     opts.map(o => `<option value="${esc(o)}"${o===sel?" selected":""}>${esc(o)}</option>`).join("");
 }
-function openEvalModal(id){
+let REQUESTS = null;   // cached hiring-requests list — the auto-fill source for the eval form + pre-screen
+async function ensureRequests(){
+  if(REQUESTS === null){
+    try { REQUESTS = (await (await fetch("/api/requests")).json()).requests || []; }
+    catch(e){ REQUESTS = []; }
+  }
+  return REQUESTS;
+}
+function fillRequestSelect(sel){
+  sel.innerHTML = `<option value="">— none —</option>` + (REQUESTS||[]).map(r => {
+    const code = r.request_code ? `${r.request_code} · ` : "";
+    return `<option value="${r.request_id}">${esc(code + (r.request_name || "(no name)"))}</option>`;
+  }).join("");
+  sel.value = "";
+}
+async function populateRequestDropdown(){
+  await ensureRequests();
+  fillRequestSelect($("#evRequest"));
+}
+// On picking a request, copy its Position/Company/Department/Section into the eval selects.
+function applyRequest(){
+  const req = (REQUESTS||[]).find(r => String(r.request_id) === $("#evRequest").value);
+  if(!req) return;
+  fillSelect($("#evPosition"), EVAL_OPTS.positions, req.position || "");
+  fillSelect($("#evCompany"), EVAL_OPTS.companies, req.company || "");
+  fillSelect($("#evDept"), EVAL_OPTS.departments, req.department || "");
+  fillSelect($("#evSection"), EVAL_OPTS.sections, req.section || "");
+  $("#evSection").dispatchEvent(new Event("change"));   // refresh the filename hint
+}
+async function openEvalModal(id){
   const c = candidates.find(x => x.application_id===id); if(!c) return;
   pendingEval = id;
   const title = c.name_title || "";
@@ -370,11 +476,16 @@ function openEvalModal(id){
   const prefixName = title ? `${title} ${name}` : name;
   $("#evalDesc").innerHTML = `<b>${esc(prefixName||"this candidate")}</b> → Evaluation`;
   $("#evName").value = prefixName;
-  fillSelect($("#evPosition"), EVAL_OPTS.positions, "");
-  fillSelect($("#evCompany"), EVAL_OPTS.companies, "");
-  fillSelect($("#evDept"), EVAL_OPTS.departments, "");
-  fillSelect($("#evSection"), EVAL_OPTS.sections, "");
-  $("#evRole").value = c.job_title || JOB_TITLE || "";       // บทบาท prefilled from job title
+  // Pre-fill the 5 fields with the candidate's stored values (set at Wait Pre-screen
+  // or via the per-card Request dropdown); HR can still change them here.
+  fillSelect($("#evPosition"), EVAL_OPTS.positions, c.position || "");
+  fillSelect($("#evCompany"), EVAL_OPTS.companies, c.company || "");
+  fillSelect($("#evDept"), EVAL_OPTS.departments, c.department || "");
+  fillSelect($("#evSection"), EVAL_OPTS.sections, c.section || "");
+  await populateRequestDropdown();                           // fill the Request picker…
+  if(c.request_id != null) $("#evRequest").value = String(c.request_id);   // …map to the candidate's request
+  $("#evRequest").onchange = applyRequest;
+  $("#evRole").value = c.role || c.job_title || JOB_TITLE || "";   // บทบาท: stored role, else job title
   $("#evDate").value = c.interview_date || new Date().toISOString().slice(0,10);
   $("#evInterviewer").value = "";
   $("#evRecruiter").value = "";
@@ -395,6 +506,7 @@ async function confirmEval(){
   const id = pendingEval;
   const payload = {
     application_id: id,
+    request_id: $("#evRequest").value || null,
     position: $("#evPosition").value, role: $("#evRole").value.trim(),
     company: $("#evCompany").value, department: $("#evDept").value,
     section: $("#evSection").value, interview_date: $("#evDate").value,
@@ -406,7 +518,9 @@ async function confirmEval(){
       headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)})).json();
     if(!r.ok) throw new Error(r.error || "failed");
     const c = candidates.find(x => x.application_id===id);
-    if(c){ c.stage = "evaluation"; c.evaluation_date = payload.interview_date || null; }
+    if(c){ c.stage = "evaluation"; c.evaluation_date = payload.interview_date || null;
+           c.request_id = payload.request_id; c.position = payload.position; c.role = payload.role;
+           c.company = payload.company; c.department = payload.department; c.section = payload.section; }
     closeEvalModal();
     toast(`Moved to Evaluation — form "${r.file}" generated & draft email created.`, 5000);
     render();
@@ -706,13 +820,21 @@ async function saveField(e){
   c.university = getOpt("university"); c.major = getOpt("major");
   c.remark = getOpt("remark");
   c.exp_total = getOpt("exp_total"); c.exp_directly = getOpt("exp_directly");
+  c.current_salary_edit = getOpt("current_salary_edit");
+  c.minimum_expect_salary_edit = getOpt("minimum_expect_salary_edit");
+  c.expect_salary_edit = getOpt("expect_salary_edit");
+  c.interview_date = getOpt("interview_date");
   try {
     const r = await (await fetch("/api/candidates/update", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({application_id:id, full_name_edit:c.full_name_edit,
         nickname:c.nickname||"", email:c.email, phone:c.phone, name_title:c.name_title,
         university:c.university||"", major:c.major||"", remark:c.remark||"",
-        exp_total:c.exp_total||"", exp_directly:c.exp_directly||""})})).json();
+        exp_total:c.exp_total||"", exp_directly:c.exp_directly||"",
+        current_salary_edit:c.current_salary_edit||"",
+        minimum_expect_salary_edit:c.minimum_expect_salary_edit||"",
+        expect_salary_edit:c.expect_salary_edit||"",
+        interview_date:c.interview_date||""})})).json();
     if(!r.ok) throw new Error("save failed");
     inp.classList.add("saved"); setTimeout(()=>inp.classList.remove("saved"), 1200);
   } catch(err){ toast("Could not save: "+err, 6000); }
@@ -952,6 +1074,73 @@ function remarkBlock(c){
   </div>`;
 }
 
+// HR-editable salary fields, shown on Wait Pre-screen cards only. Free text (e.g. '30K').
+// Persist via the shared cd-edit listener (saveField).
+function salaryBlock(c){
+  if(selectedStage !== "wait_prescreen") return "";
+  return `<div class="cand-salary">
+    <label class="sal-field" title="Current salary">💰 Current
+      <input class="edit cd-edit cd-sal" data-f="current_salary_edit" value="${esc(c.current_salary_edit||"")}" placeholder="—"></label>
+    <label class="sal-field" title="Minimum expected salary">📉 Min expect
+      <input class="edit cd-edit cd-sal" data-f="minimum_expect_salary_edit" value="${esc(c.minimum_expect_salary_edit||"")}" placeholder="—"></label>
+    <label class="sal-field" title="Expected salary">📈 Expect
+      <input class="edit cd-edit cd-sal" data-f="expect_salary_edit" value="${esc(c.expect_salary_edit||"")}" placeholder="—"></label>
+  </div>`;
+}
+
+// HR-editable interview date, shown on Interview-stage cards only. Persists to the
+// interview_date column (which the Evaluation form/email then prefills).
+function interviewDateBlock(c){
+  if(selectedStage !== "interview") return "";
+  return `<div class="cand-idate">
+    <label class="sal-field" title="Interview date">📅 Interview date
+      <input type="date" class="cd-edit cd-idate" data-f="interview_date" value="${esc(c.interview_date||"")}"></label>
+  </div>`;
+}
+
+// Editable hiring-request picker, shown on Sent Exam / Shortlist / Interview cards.
+// Options are filled (and pre-selected to the candidate's current request) after
+// render by populateRequestSelects(); changing it re-applies the request's fields.
+const REQ_EDIT_STAGES = new Set(["sent_exam","shortlist","interview"]);
+function requestEditBlock(c){
+  if(!REQ_EDIT_STAGES.has(selectedStage)) return "";
+  return `<div class="cand-req">
+    <label class="sal-field" title="Hiring request — sets Position / Role / Company / Department / Section">📋 Request
+      <select class="cd-req" data-id="${esc(c.application_id)}"></select></label>
+  </div>`;
+}
+async function populateRequestSelects(){
+  if(!REQ_EDIT_STAGES.has(selectedStage)) return;
+  await ensureRequests();
+  document.querySelectorAll(".cd-req").forEach(sel => {
+    const id = sel.dataset.id, c = candidates.find(x => x.application_id===id);
+    fillRequestSelect(sel);
+    sel.value = (c && c.request_id!=null) ? String(c.request_id) : "";
+    sel.onchange = () => onCandidateRequestChange(id, sel.value, sel);
+  });
+}
+// Re-apply the chosen request's fields to the candidate (role = job title, which a
+// request has no field for). "— none —" clears the link and those fields.
+async function onCandidateRequestChange(id, reqIdStr, sel){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const req = (REQUESTS||[]).find(r => String(r.request_id) === reqIdStr);
+  const fields = req
+    ? {request_id:req.request_id, position:req.position||"", role:(c.job_title||JOB_TITLE||""),
+       company:req.company||"", department:req.department||"", section:req.section||""}
+    : {request_id:null, position:"", role:"", company:"", department:"", section:""};
+  try {
+    const r = await (await fetch("/api/candidates/request-fields", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, ...fields})})).json();
+    if(!r.ok) throw new Error(r.error || "save failed");
+    c.request_id=fields.request_id; c.position=fields.position; c.role=fields.role;
+    c.company=fields.company; c.department=fields.department; c.section=fields.section;
+    if(sel){ sel.classList.add("saved"); setTimeout(()=>sel.classList.remove("saved"), 1200); }
+    toast("Request updated — Position / Company / Department / Section / Role saved.", 2500);
+  } catch(e){ toast("Could not update request: "+e.message, 6000); }
+}
+window.onCandidateRequestChange = onCandidateRequestChange;
+
 // Update the name + university/major inputs in place after an extraction lands.
 // On a normal (auto) run we don't clobber anything HR has already typed into
 // uni/major; on a forced regenerate we overwrite them with the fresh suggestion.
@@ -1057,6 +1246,9 @@ function renderCards(){
         ${extraFieldsBlock(c)}
         ${summaryBlock(c)}
         ${remarkBlock(c)}
+        ${salaryBlock(c)}
+        ${interviewDateBlock(c)}
+        ${requestEditBlock(c)}
       </div>
       <div class="cand-actions">
         ${c.resume_downloaded?`<button class="btn tiny secondary" onclick="openResume('${esc(id)}', this.closest('.cand-card').querySelector('.cd-edit[data-f=full_name_edit]').value)">📄 Resume</button>`:`<button class="btn tiny secondary" disabled title="No resume on file">📄 No resume</button>`}
@@ -1082,6 +1274,7 @@ function renderCards(){
   updateBulkBar();     // sync the toolbar count / select-all state with selectedIds
   ensureSummaries();   // lazily generate AI summaries for AI-stage cards on view
   ensureReplies();     // lazily check mailbox replies for sent_exam+ cards on view
+  populateRequestSelects();   // fill + preselect the per-card Request dropdowns
 }
 
 function markTargets(active){
