@@ -1074,10 +1074,9 @@ function remarkBlock(c){
   </div>`;
 }
 
-// HR-editable salary fields, shown on Wait Pre-screen cards only. Free text (e.g. '30K').
+// HR-editable salary fields, shown + editable on cards in EVERY stage. Free text (e.g. '30K').
 // Persist via the shared cd-edit listener (saveField).
 function salaryBlock(c){
-  if(selectedStage !== "wait_prescreen") return "";
   return `<div class="cand-salary">
     <label class="sal-field" title="Current salary">💰 Current
       <input class="edit cd-edit cd-sal" data-f="current_salary_edit" value="${esc(c.current_salary_edit||"")}" placeholder="—"></label>
