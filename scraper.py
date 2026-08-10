@@ -730,7 +730,14 @@ class SeekScraper:
                 r"""c => {
                     for (const rr of c.querySelectorAll('[data-cy="role-requirement"]')) {
                         const q = rr.querySelector('[data-cy="question"]');
-                        if (q && q.textContent.includes('เงินเดือนที่คาดหวัง')) {
+                        // Match the expected-salary question in either the Thai
+                        // ('เงินเดือนที่คาดหวัง') or English ('Expected monthly salary')
+                        // wording — job postings ask it in whichever language they
+                        // were created in.
+                        const txt = q ? q.textContent : '';
+                        const isSalary = txt.includes('เงินเดือนที่คาดหวัง')
+                            || (/expected/i.test(txt) && /salary/i.test(txt));
+                        if (isSalary) {
                             const a = [...rr.querySelectorAll('[data-cy^="answer-"]')]
                                 .map(x => x.textContent.trim()).filter(Boolean);
                             return a.join(', ') || null;
