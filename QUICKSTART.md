@@ -58,11 +58,17 @@ A local website with an HR hiring board: job postings → per-job candidate
 pipeline → status tracking.
 
 ## Start the website
+The board runs as a **background task that starts automatically when you log on**
+(set up once with `.\service.ps1 install` — see `INSTALL.md`). Just open
+**http://localhost:2757** in your browser.
+
+If it isn't up, or after you change code:
 ```powershell
 cd E:\jobdb_scraping
-.\.venv\Scripts\python.exe webapp.py
+.\service.ps1 status     # is it running?
+.\service.ps1 restart    # pick up code / .env changes  (or double-click deploy.cmd)
+.\service.ps1 logs       # what went wrong?
 ```
-Then open **http://localhost:2757** in your browser.
 
 ## Pages
 1. **Job Postings (home)** — your scraped jobs as cards, split into **Online / Offline**

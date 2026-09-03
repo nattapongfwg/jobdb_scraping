@@ -88,11 +88,33 @@ You want to see **"Connected OK"**.
 
 ## 6. Run
 
-**The HR web board:**
+**The HR web board** — install it once as a background task that starts at every logon:
 ```powershell
+.\service.ps1 install
+```
+Then open **http://localhost:2757**. No window stays open; the board is simply always up.
+
+Day-to-day commands (PowerShell, in the project folder):
+
+| Command | What it does |
+|---------|--------------|
+| `.\service.ps1 status` | Task state, HTTP health, server PID, current commit |
+| `.\service.ps1 restart` | Stop + start — run after editing any `.py` file or `.env` |
+| `.\service.ps1 deploy` | `pip install` + restart + health check (**or just double-click `deploy.cmd`**) |
+| `.\service.ps1 deploy -Pull` | Same, but `git pull --ff-only` first (use on a teammate's machine) |
+| `.\service.ps1 logs` | Last 60 lines of `logs\webapp.log` (`-Follow` to tail live) |
+| `.\service.ps1 stop` / `start` / `uninstall` | Manual control / remove the task |
+
+How it works: a Scheduled Task named **"JobDB Recruitment Board"** runs `run_webapp.cmd`
+hidden **under your own account** at logon (so SQL Server Windows Auth, the Graph token
+cache and OneDrive keep working). The wrapper relaunches `webapp.py` within 5 s if it ever
+crashes, and writes `logs\webapp.log` + `logs\service.log`.
+
+To run it in the foreground instead (debugging), stop the task first:
+```powershell
+.\service.ps1 stop
 .\.venv\Scripts\python.exe webapp.py
 ```
-Then open **http://localhost:2757**.
 
 **The SEEK scraper** (always keep `--headed` so you can solve the CAPTCHA):
 ```powershell
@@ -128,5 +150,8 @@ The Excel evaluation templates (`Evaluate_Original.xlsx`, `Evaluation_Template.x
 - **Scraper fails at login** → make sure you used `--headed` and solved the CAPTCHA in
   the browser window.
 - **"Missing Graph config" when sending email** → the `GRAPH_*` values in `.env` are
-  blank; fill them in and restart `webapp.py`.
-- **Always restart `webapp.py`** after editing any backend `.py` file or `.env`.
+  blank; fill them in and run `.\service.ps1 restart`.
+- **Always restart the board** after editing any backend `.py` file or `.env`:
+  `.\service.ps1 restart` (or double-click `deploy.cmd`).
+- **Board not up after logon?** → `.\service.ps1 status`, then `.\service.ps1 logs`. If the
+  task is missing, run `.\service.ps1 install` again.
