@@ -216,13 +216,22 @@ class SeekScraper:
         configured employer account so the dashboard/jobs are in scope.
         """
         ok = self.is_logged_in()
+        if ok:
+            # The home page loads without auth, so is_logged_in() can pass on
+            # an expired Auth0 session. The advertiser-scope step is the real
+            # test: SEEK bounces to authenticate.seek.com/login when it's dead.
+            self._ensure_account()
+            if self._on_login_page():
+                log.warning("SEEK session expired (redirected to %s).", self.page.url[:80])
+                ok = False
         if not ok and allow_manual and self.headed:
             log.info("No valid session — starting interactive login.")
             ok = self.manual_login()
+            if ok:
+                self._ensure_account()
         if not ok:
             log.error("No valid session. Re-run with --headed to log in interactively.")
             return False
-        self._ensure_account()
         return True
 
     def _ensure_account(self) -> None:
