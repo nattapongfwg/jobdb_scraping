@@ -149,6 +149,14 @@ The Excel evaluation templates (`Evaluate_Original.xlsx`, `Evaluation_Template.x
   name in `.env` exactly matches what's installed.
 - **Scraper fails at login** → make sure you used `--headed` and solved the CAPTCHA in
   the browser window.
+- **Scrape suddenly stops working: log shows `Scoped to advertiser ...; now at
+  https://authenticate.seek.com/login?...` then `No job links at /jobs`** → the saved
+  SEEK session in `.browser_profile/` has expired (SEEK does this every few weeks).
+  Nothing is broken. Since 2026-09-09 the scraper detects this and opens the SEEK
+  sign-in window by itself — tick "Verify you are human", sign in, and the scrape
+  continues. If no window appears, log in once by hand from the project folder:
+  `.venv\Scripts\python.exe main.py --manual-login`, then click Scrape again. No board
+  restart is needed (the scraper is a fresh process per scrape).
 - **"Missing Graph config" when sending email** → the `GRAPH_*` values in `.env` are
   blank; fill them in and run `.\service.ps1 restart`.
 - **Always restart the board** after editing any backend `.py` file or `.env`:
