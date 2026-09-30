@@ -50,6 +50,19 @@ def _int_or_none(v: Any) -> int | None:
         return None
 
 
+# Hiring-request columns plus the display names of whoever created / last edited
+# the row (append a WHERE / ORDER BY).
+_REQUEST_SELECT = (
+    "SELECT r.request_id, r.request_code, r.request_name, r.[position], r.is_new_replace, "
+    "r.company, r.department, r.section, r.direct_supervisor, r.buddy, r.head_count, "
+    "r.[type], r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2, "
+    "r.created_at, r.created_by, cu.name AS created_by_name, "
+    "r.updated_at, r.updated_by, uu.name AS updated_by_name, r.revision "
+    "FROM dbo.requests r "
+    "LEFT JOIN dbo.users cu ON cu.email = r.created_by "
+    "LEFT JOIN dbo.users uu ON uu.email = r.updated_by ")
+
+
 def candidate_key(app: dict[str, Any]) -> str | None:
     """Stable per-candidate identity within a job, used for deduping across
     re-scrapes. SEEK's application_id (selected=<uuid>) is regenerated every
@@ -835,9 +848,10 @@ class Database:
                        direct_supervisor: str | None, buddy: str | None,
                        head_count: Any, type_: str | None, reason: str | None,
                        requested_by: str | None, acknowledge_by_1: str | None,
-                       acknowledge_by_2: str | None) -> int:
+                       acknowledge_by_2: str | None, actor: str | None = None) -> int:
         """Insert one hiring request (from the Request page). head_count is coerced
-        to an int or NULL. Returns the new request_id."""
+        to an int or NULL; `actor` (users.email) is recorded as the creator.
+        Returns the new request_id."""
         try:
             hc = int(str(head_count).strip()) if str(head_count or "").strip() else None
         except (TypeError, ValueError):
@@ -846,14 +860,15 @@ class Database:
         cur.execute(
             "INSERT INTO dbo.requests (request_code, request_name, [position], "
             "is_new_replace, company, department, section, direct_supervisor, buddy, "
-            "head_count, [type], reason, requested_by, acknowledge_by_1, acknowledge_by_2) "
+            "head_count, [type], reason, requested_by, acknowledge_by_1, acknowledge_by_2, "
+            "created_by) "
             "OUTPUT INSERTED.request_id "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (request_code or None), (request_name or None), (position or None),
             (is_new_replace or None), (company or None), (department or None),
             (section or None), (direct_supervisor or None), (buddy or None), hc,
             (type_ or None), (reason or None), (requested_by or None),
-            (acknowledge_by_1 or None), (acknowledge_by_2 or None))
+            (acknowledge_by_1 or None), (acknowledge_by_2 or None), (actor or None))
         new_id = cur.fetchone()[0]
         self.conn.commit()
         return int(new_id)
@@ -861,22 +876,14 @@ class Database:
     def list_requests(self) -> list[dict[str, Any]]:
         """All hiring requests, newest first (for the Requests list page)."""
         cur = self.conn.cursor()
-        cur.execute(
-            "SELECT request_id, request_code, request_name, [position], is_new_replace, "
-            "company, department, section, direct_supervisor, buddy, head_count, [type], "
-            "reason, requested_by, acknowledge_by_1, acknowledge_by_2, created_at "
-            "FROM dbo.requests ORDER BY request_id DESC")
+        cur.execute(_REQUEST_SELECT + "ORDER BY r.request_id DESC")
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
 
     def get_request(self, request_id: int) -> dict[str, Any] | None:
         """One hiring request by id (for pre-filling the edit form), or None."""
         cur = self.conn.cursor()
-        cur.execute(
-            "SELECT request_id, request_code, request_name, [position], is_new_replace, "
-            "company, department, section, direct_supervisor, buddy, head_count, [type], "
-            "reason, requested_by, acknowledge_by_1, acknowledge_by_2, created_at "
-            "FROM dbo.requests WHERE request_id = ?", request_id)
+        cur.execute(_REQUEST_SELECT + "WHERE r.request_id = ?", request_id)
         r = cur.fetchone()
         if not r:
             return None
@@ -890,28 +897,44 @@ class Database:
                        direct_supervisor: str | None, buddy: str | None,
                        head_count: Any, type_: str | None, reason: str | None,
                        requested_by: str | None, acknowledge_by_1: str | None,
-                       acknowledge_by_2: str | None) -> bool:
-        """Update one hiring request. head_count is coerced to an int or NULL.
-        Returns True if a row was updated (False if the id didn't exist)."""
+                       acknowledge_by_2: str | None, actor: str | None = None,
+                       revision: Any = None) -> dict[str, Any]:
+        """Update one hiring request, recording `actor` (users.email) as the last
+        editor. head_count is coerced to an int or NULL.
+
+        `revision` is the revision the editor loaded: if someone else saved since,
+        nothing is written and the result carries `conflict=True` plus the current
+        row (who edited it and when). None skips that check. Returns {"ok": True,
+        "revision": n}, {"ok": False, "conflict": True, "request": {...}} or
+        {"ok": False, "missing": True}."""
         try:
             hc = int(str(head_count).strip()) if str(head_count or "").strip() else None
         except (TypeError, ValueError):
             hc = None
+        rev = _int_or_none(revision)
         cur = self.conn.cursor()
         cur.execute(
             "UPDATE dbo.requests SET request_code = ?, request_name = ?, [position] = ?, "
             "is_new_replace = ?, company = ?, department = ?, section = ?, "
             "direct_supervisor = ?, buddy = ?, head_count = ?, [type] = ?, reason = ?, "
-            "requested_by = ?, acknowledge_by_1 = ?, acknowledge_by_2 = ? "
-            "WHERE request_id = ?",
+            "requested_by = ?, acknowledge_by_1 = ?, acknowledge_by_2 = ?, "
+            f"updated_by = ?, updated_at = {THAI_NOW}, revision = revision + 1 "
+            "OUTPUT INSERTED.revision "
+            "WHERE request_id = ?" + ("" if rev is None else " AND revision = ?"),
             (request_code or None), (request_name or None), (position or None),
             (is_new_replace or None), (company or None), (department or None),
             (section or None), (direct_supervisor or None), (buddy or None), hc,
             (type_ or None), (reason or None), (requested_by or None),
-            (acknowledge_by_1 or None), (acknowledge_by_2 or None), request_id)
-        updated = cur.rowcount
+            (acknowledge_by_1 or None), (acknowledge_by_2 or None), (actor or None),
+            request_id, *(() if rev is None else (rev,)))
+        row = cur.fetchone()
         self.conn.commit()
-        return updated > 0
+        if row:
+            return {"ok": True, "revision": int(row[0])}
+        current = self.get_request(request_id)
+        if current is None:
+            return {"ok": False, "missing": True}
+        return {"ok": False, "conflict": True, "request": current}
 
     def get_resume_path(self, application_id: str) -> str | None:
         """Return the stored resume file path for one candidate (or None)."""

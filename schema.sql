@@ -123,6 +123,16 @@ IF COL_LENGTH('dbo.requests', 'acknowledge_by_1') IS NULL
     ALTER TABLE dbo.requests ADD acknowledge_by_1 NVARCHAR(200) NULL;
 IF COL_LENGTH('dbo.requests', 'acknowledge_by_2') IS NULL
     ALTER TABLE dbo.requests ADD acknowledge_by_2 NVARCHAR(200) NULL;
+-- Who created / last edited a request (dbo.users.email), when it was last edited,
+-- and a revision counter so a save based on a stale copy is caught, not lost.
+IF COL_LENGTH('dbo.requests', 'created_by') IS NULL
+    ALTER TABLE dbo.requests ADD created_by NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.requests', 'updated_by') IS NULL
+    ALTER TABLE dbo.requests ADD updated_by NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.requests', 'updated_at') IS NULL
+    ALTER TABLE dbo.requests ADD updated_at DATETIME2 NULL;
+IF COL_LENGTH('dbo.requests', 'revision') IS NULL
+    ALTER TABLE dbo.requests ADD revision INT NOT NULL DEFAULT 0;
 IF COL_LENGTH('dbo.jobs', 'is_active') IS NULL
     ALTER TABLE dbo.jobs ADD is_active BIT NOT NULL DEFAULT 1;
 IF COL_LENGTH('dbo.applicants', 'is_sent_exam') IS NULL

@@ -59,10 +59,11 @@
           <th>Requested by</th>
           <th>Acknowledge 1</th>
           <th>Acknowledge 2</th>
-          <th>Submitted</th>
+          <th>Created by</th>
+          <th>Last edited</th>
           <th></th>
         </tr></thead>
-        <tbody id="rows"><tr><td colspan="18" class="muted" style="padding:16px">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="19" class="muted" style="padding:16px">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -72,6 +73,9 @@
 const $ = s => document.querySelector(s);
 const esc = s => (s??"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const tcell = v => (v!=null && v!=="") ? esc(v) : `<span class="muted">—</span>`;
+// "Name" over a small timestamp; just the time when the name is unknown (old rows).
+const who = (name, at) => (name ? `<b>${esc(name)}</b><br>` : "")
+  + (at ? `<span class="muted" style="font-size:12px">${esc(at)}</span>` : (name ? "" : tcell("")));
 let requests = [];
 
 async function load(){
@@ -85,7 +89,8 @@ function filtered(){
   if(!q) return requests;
   return requests.filter(r => [r.request_code, r.request_name, r.position, r.company,
     r.department, r.section, r.direct_supervisor, r.buddy, r.is_new_replace, r.type,
-    r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2]
+    r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2,
+    r.created_by_name, r.updated_by_name]
     .some(v => (v||"").toString().toLowerCase().includes(q)));
 }
 
@@ -93,7 +98,7 @@ function render(){
   const rows = filtered();
   $("#count").textContent = `${rows.length} request${rows.length!==1?"s":""}`;
   const tbody = $("#rows");
-  if(!rows.length){ tbody.innerHTML = `<tr><td colspan="18" class="muted" style="padding:16px">No requests yet.</td></tr>`; return; }
+  if(!rows.length){ tbody.innerHTML = `<tr><td colspan="19" class="muted" style="padding:16px">No requests yet.</td></tr>`; return; }
   tbody.innerHTML = rows.map(r => `<tr>
     <td>${esc(r.request_id)}</td>
     <td>${tcell(r.request_code)}</td>
@@ -111,7 +116,8 @@ function render(){
     <td>${tcell(r.requested_by)}</td>
     <td>${tcell(r.acknowledge_by_1)}</td>
     <td>${tcell(r.acknowledge_by_2)}</td>
-    <td>${tcell(r.created_at)}</td>
+    <td>${who(r.created_by_name, r.created_at)}</td>
+    <td>${r.updated_at ? who(r.updated_by_name, r.updated_at) : tcell("")}</td>
     <td><a class="btn ghost" href="/request?id=${esc(r.request_id)}">✏ Edit</a></td>
   </tr>`).join("");
 }

@@ -461,6 +461,8 @@ def request_page():
     if rid.isdigit():
         with Database(cfg) as db:
             req = db.get_request(int(rid))
+    if req:
+        req = _request_json(req)
     return render_template("request.html", req=req,
                            positions=evaluation.POSITIONS,
                            companies=evaluation.COMPANIES,
@@ -959,10 +961,19 @@ def api_requests_list():
     """All submitted hiring requests, newest first."""
     with Database(cfg) as db:
         rows = db.list_requests()
-    for r in rows:
-        ca = r.get("created_at")
-        r["created_at"] = ca.strftime("%Y-%m-%d %H:%M") if ca is not None else ""
-    return jsonify({"requests": rows})
+    return jsonify({"requests": [_request_json(r) for r in rows]})
+
+
+def _request_json(r: dict) -> dict:
+    """A dbo.requests row ready for JSON: timestamps as 'YYYY-MM-DD HH:MM' and
+    created_by / updated_by names falling back to the email when the user row
+    is gone."""
+    for k in ("created_at", "updated_at"):
+        v = r.get(k)
+        r[k] = v.strftime("%Y-%m-%d %H:%M") if v is not None else ""
+    r["created_by_name"] = r.get("created_by_name") or r.get("created_by") or ""
+    r["updated_by_name"] = r.get("updated_by_name") or r.get("updated_by") or ""
+    return r
 
 
 def _request_fields(data: dict) -> tuple[dict | None, str | None]:
@@ -997,21 +1008,32 @@ def api_requests_save():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     with Database(cfg) as db:
-        rid = db.insert_request(**fields)
+        rid = db.insert_request(**fields, actor=_current_email())
     return jsonify({"ok": True, "request_id": rid})
 
 
 @app.post("/api/requests/<int:rid>")
 def api_requests_update(rid: int):
-    """Update an existing hiring request (edit from the Request page)."""
-    fields, err = _request_fields(request.get_json(force=True))
+    """Update an existing hiring request (edit from the Request page). The body's
+    `revision` is the one the form loaded; if a teammate saved in between, answer
+    409 with who and when instead of overwriting their change. `force: true`
+    (the user chose to overwrite) skips that check."""
+    data = request.get_json(force=True)
+    fields, err = _request_fields(data)
     if err:
         return jsonify({"ok": False, "error": err}), 400
+    revision = None if data.get("force") else data.get("revision")
     with Database(cfg) as db:
-        ok = db.update_request(rid, **fields)
-    if not ok:
+        res = db.update_request(rid, **fields, actor=_current_email(), revision=revision)
+    if res.get("missing"):
         return jsonify({"ok": False, "error": "Request not found."}), 404
-    return jsonify({"ok": True, "request_id": rid})
+    if res.get("conflict"):
+        cur = _request_json(res["request"])
+        who = cur["updated_by_name"] or "someone"
+        return jsonify({"ok": False, "conflict": True, "request": cur,
+                        "error": f"{who} saved this request at {cur['updated_at']} "
+                                 "while you had it open."}), 409
+    return jsonify({"ok": True, "request_id": rid, "revision": res["revision"]})
 
 
 def _format_deadline(raw: str) -> str:

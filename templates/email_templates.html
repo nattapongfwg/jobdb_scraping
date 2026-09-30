@@ -60,6 +60,7 @@
   .et-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;
                 border-top: 1px solid var(--line-soft); padding-top: 18px; }
   .et-actions .spacer { margin-right: auto; }
+  fieldset.et-readonly { border: 0; padding: 0; margin: 0; min-width: 0; }
   .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .users-table th, .users-table td { padding: 4px 6px; text-align: left; vertical-align: middle; }
   .users-table th { font-weight: 600; opacity: .75; }
@@ -141,6 +142,10 @@
 
     <!-- RIGHT: editor -->
     <section class="et-panel et-editor">
+      {% if not (me and me.role == 'admin') %}
+      <p class="muted" style="font-size:13px;margin:0 0 10px">🔒 View only — only an Admin can change email templates.</p>
+      <fieldset disabled class="et-readonly">
+      {% endif %}
       <p class="hint" id="cfgHint"></p>
 
       <div class="et-grid">
@@ -172,13 +177,15 @@
         <div class="sec-head">
           <b>Custom variables</b>
           <span class="muted" style="font-size:12px">— your own reusable values; drop them in as <code>{name}</code></span>
+          {% if me and me.role == 'admin' %}
           <button type="button" class="btn ghost tiny" style="margin-left:auto" onclick="addCustomVar()">+ Add variable</button>
+          {% endif %}
         </div>
         <div id="cfgCustomVars"></div>
       </div>
 
-      <!-- Insert field -->
-      <div class="et-section">
+      <!-- Insert field (Admin only — HR can't edit) -->
+      <div class="et-section"{% if not (me and me.role == 'admin') %} style="display:none"{% endif %}>
         <div class="sec-head"><b>Insert field</b>
           <span class="muted" style="font-size:12px">into <b id="cfgInsertTarget">Body</b> — click a chip. Candidate columns load live from the database.</span>
         </div>
@@ -199,6 +206,9 @@
         </div>
       </div>
 
+      {% if not (me and me.role == 'admin') %}
+      </fieldset>
+      {% endif %}
       <div class="et-actions"{% if not (me and me.role == 'admin') %} style="display:none"{% endif %}>
         <button class="btn ghost" id="cfgDeleteBtn" style="color:var(--red)" onclick="deleteTemplate()">🗑 Delete</button>
         <span class="spacer"></span>
@@ -435,12 +445,13 @@ async function deleteTemplate(){
 
 /* ---- email sign-in (single shared Recruit mailbox, device-code) ---- */
 let emailAuthPoll = null;
+const CAN_SIGN_IN = {{ 'true' if me and me.role == 'admin' else 'false' }};
 function renderEmailAuth(s){
   const isPending = s.status === "pending" && !s.signed_in;
   $("#emailAuthCode").style.display = (isPending && s.user_code) ? "" : "none";
   if(s.signed_in){
     $("#emailAuthStatus").innerHTML = `✅ Signed in as <b>${esc(s.account)}</b> — the shared Recruit mailbox.`;
-    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "Re-sign in";
+    $("#emailSignInBtn").style.display = CAN_SIGN_IN ? "" : "none"; $("#emailSignInBtn").textContent = "Re-sign in";
   } else if(isPending){
     $("#emailAuthStatus").textContent = "Complete the sign-in below:";
     $("#emailSignInBtn").style.display = "none";
@@ -448,8 +459,9 @@ function renderEmailAuth(s){
       if(s.verification_uri) $("#emailAuthUri").href = s.verification_uri; }
   } else {
     $("#emailAuthStatus").innerHTML = s.error
-      ? `⚠ ${esc(s.error)}` : "Not signed in — sending requires a one-time sign-in.";
-    $("#emailSignInBtn").style.display = ""; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
+      ? `⚠ ${esc(s.error)}` : (CAN_SIGN_IN ? "Not signed in — sending requires a one-time sign-in."
+                               : "Not signed in — ask an Admin to sign in the Recruit mailbox.");
+    $("#emailSignInBtn").style.display = CAN_SIGN_IN ? "" : "none"; $("#emailSignInBtn").textContent = "🔑 Sign in to email";
   }
 }
 async function refreshEmailAuth(){

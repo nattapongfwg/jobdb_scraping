@@ -39,6 +39,12 @@
     <div>
       <h1 class="page-title">{% if req %}Edit{% else %}Hiring{% endif %} <span class="accent">Request</span></h1>
       <p class="page-sub">{% if req %}Editing request #{{ req.request_id }} — change the fields and save.{% else %}Submit a request to open or replace a position.{% endif %}</p>
+      {% if req %}
+      <p class="page-sub" style="font-size:13px">
+        Created by <b>{{ req.created_by_name or '—' }}</b>{% if req.created_at %} · {{ req.created_at }}{% endif %}
+        {% if req.updated_at %}&nbsp;·&nbsp; Last edited by <b>{{ req.updated_by_name or '—' }}</b> · {{ req.updated_at }}{% endif %}
+      </p>
+      {% endif %}
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <a class="btn secondary" href="/requests">📋 View submitted requests</a>
@@ -144,7 +150,8 @@
 
 <script>
 const REQUEST_ID = {{ (req.request_id if req else None)|tojson }};
-async function submitRequest(ev){
+const REQUEST_REVISION = {{ (req.revision if req else None)|tojson }};
+async function submitRequest(ev, force){
   ev.preventDefault();
   const msg = document.getElementById("rqMsg");
   const btn = document.getElementById("rqSubmit");
@@ -165,6 +172,8 @@ async function submitRequest(ev){
     requested_by: v("requested_by"),
     acknowledge_by_1: v("acknowledge_by_1"),
     acknowledge_by_2: v("acknowledge_by_2"),
+    revision: REQUEST_REVISION,
+    force: !!force,
   };
   msg.className = ""; msg.textContent = "";
   btn.disabled = true;
@@ -175,6 +184,16 @@ async function submitRequest(ev){
       body: JSON.stringify(payload),
     });
     const data = await r.json();
+    if (data.conflict) {
+      // A teammate saved this request after the form was opened.
+      if (confirm(data.error + "\n\nOK = overwrite their change with yours.\n"
+                  + "Cancel = reload the page to see their version.")) {
+        btn.disabled = false;
+        return await submitRequest(ev, true);
+      }
+      window.location.reload();
+      return false;
+    }
     if (data.ok) {
       msg.className = "ok";
       if (REQUEST_ID) {
