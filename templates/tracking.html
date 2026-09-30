@@ -126,12 +126,12 @@ let candidates = [], users = [];
 const PAGE_SIZES = [20, 40, 60];
 let pageSize = 20, page = 1;
 try { const v = +localStorage.getItem("tracking.pageSize"); if(PAGE_SIZES.includes(v)) pageSize = v; } catch(e){}
-// Owner column: the responsible recruiter's name over their folder prefix.
+// Owner column: the responsible recruiter's first name (full name on hover) over their folder prefix.
 function ownerCell(email){
   if(!email) return `<span class="muted">—</span>`;
   const u = users.find(x => x.email === email);
   if(!u) return esc(email);
-  return `<div class="owner-name">${esc(u.name)}</div>`
+  return `<div class="owner-name" title="${esc(u.name)}">${esc(u.firstname || u.name)}</div>`
     + (u.prefix ? `<div class="owner-prefix">📁 ${esc(u.prefix)}</div>` : "");
 }
 async function loadUsers(){

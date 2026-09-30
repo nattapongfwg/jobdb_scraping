@@ -151,7 +151,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ### Templates / static
 - `login.html`, `register.html`, `setup.html`, `_account_fields.html`, `_who.html`.
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
-- `tracking.html` — **Owner first column** (name over 📁 folder prefix); **client-side paging**
+- `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**
   (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
 - `email_templates.html` — users manager (Admin). For HR the editor sits in one
   `<fieldset disabled class="et-readonly">`, Add variable / insert chips are hidden, and the
