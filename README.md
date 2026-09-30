@@ -11,6 +11,13 @@ setup required.
 > Use this only against **your own** employer account and your own applicants' data. The
 > script reuses your manually-authenticated session and rate-limits requests.
 
+## Multi-user upgrade (work in progress)
+
+This folder is the **development copy** for making the board shared by the whole HR team:
+one database, sign-in with Admin/HR roles, candidate owners and a history trail. The
+design decisions, where everything is, how to run and test it, and what comes next are in
+**[MULTIUSER.md](MULTIUSER.md)** — read that first when returning to the project.
+
 ## Login & the CAPTCHA (important)
 
 SEEK's sign-in uses a **"Verify you are human" reCAPTCHA** plus Auth0 SSO, so login can't be
