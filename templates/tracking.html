@@ -220,6 +220,5 @@ $("#search").addEventListener("input", ()=>{ clearTimeout(window._s); window._s=
 
 (async function init(){ await Promise.all([loadJobs(), loadUsers()]); await load(); })();
 </script>
-<script src="{{ url_for('static', filename='fantasy.js') }}"></script>
 </body>
 </html>
