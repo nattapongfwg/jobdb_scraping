@@ -47,6 +47,7 @@
     <div class="table-wrap">
       <table>
         <thead><tr>
+          <th>Owner</th>
           <th>Title</th>
           <th>Name (editable)</th>
           <th>Nickname (editable)</th>
@@ -56,7 +57,6 @@
           <th>Expected Salary</th>
           <th>Alchemists Title</th>
           <th>Stage</th>
-          <th>Owner</th>
           <th>Exam</th>
           <th>Resume</th>
           <th>CV</th>
@@ -78,6 +78,23 @@
         </tr></thead>
         <tbody id="rows"><tr><td colspan="28" class="muted" style="padding:16px">Loading…</td></tr></tbody>
       </table>
+    </div>
+
+    <div class="pager">
+      <label for="pageSize">Rows per page
+        <select id="pageSize">
+          <option value="20">20</option>
+          <option value="40">40</option>
+          <option value="60">60</option>
+        </select>
+      </label>
+      <span id="pageInfo" class="muted"></span>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="pageFirst" title="First page">«</button>
+      <button class="btn ghost" id="pagePrev">‹ Prev</button>
+      <span id="pageNum"></span>
+      <button class="btn ghost" id="pageNext">Next ›</button>
+      <button class="btn ghost" id="pageLast" title="Last page">»</button>
     </div>
   </div>
 </div>
@@ -105,7 +122,18 @@ const STAGE_NUM = { prescreen:"1. ", wait_prescreen:"1.5 ", sent_exam:"2. ", sho
 const stageNum = k => STAGE_NUM[k] || "";
 const STAGE_LABEL = Object.fromEntries(STAGES.map(s=>[s.key, stageNum(s.key)+s.label]));
 let candidates = [], users = [];
-const ownerName = e => { const u = users.find(x => x.email === e); return u ? u.name : (e || ""); };
+// Paging is client-side: /api/tracking returns every match, the table draws one page.
+const PAGE_SIZES = [20, 40, 60];
+let pageSize = 20, page = 1;
+try { const v = +localStorage.getItem("tracking.pageSize"); if(PAGE_SIZES.includes(v)) pageSize = v; } catch(e){}
+// Owner column: the responsible recruiter's name over their folder prefix.
+function ownerCell(email){
+  if(!email) return `<span class="muted">—</span>`;
+  const u = users.find(x => x.email === email);
+  if(!u) return esc(email);
+  return `<div class="owner-name">${esc(u.name)}</div>`
+    + (u.prefix ? `<div class="owner-prefix">📁 ${esc(u.prefix)}</div>` : "");
+}
 async function loadUsers(){
   try { users = (await (await fetch("/api/users")).json()).users || []; } catch(e){ users = []; }
 }
@@ -124,6 +152,7 @@ async function load(){
   const job = $("#jobFilter").value, stage = $("#stageFilter").value, q = $("#search").value.trim();
   const url = `/api/tracking?job_id=${encodeURIComponent(job)}&stage=${encodeURIComponent(stage)}&q=${encodeURIComponent(q)}`;
   candidates = await (await fetch(url)).json();
+  page = 1;
   render();
 }
 
@@ -132,17 +161,34 @@ const dcell = d => d ? esc(d) : `<span class="muted">—</span>`;
 const tcell = v => (v!=null && v!=="") ? esc(v) : `<span class="muted">—</span>`;
 function stageBadge(k){ const cls = k==="offered"?"yes":(k==="not_interest"?"no":"wait"); return `<span class="pill ${cls}">${esc(STAGE_LABEL[k]||k)}</span>`; }
 
+function renderPager(){
+  const total = candidates.length, pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total ? (page - 1) * pageSize + 1 : 0, to = Math.min(page * pageSize, total);
+  $("#pageInfo").textContent = total ? `Showing ${from}–${to} of ${total}` : "";
+  $("#pageNum").textContent = `Page ${page} of ${pages}`;
+  $("#pageFirst").disabled = $("#pagePrev").disabled = page <= 1;
+  $("#pageNext").disabled = $("#pageLast").disabled = page >= pages;
+}
+function goPage(n){
+  const pages = Math.max(1, Math.ceil(candidates.length / pageSize));
+  page = Math.min(Math.max(1, n), pages);
+  render();
+}
+
 function render(){
   $("#count").textContent = `${candidates.length} candidate${candidates.length!==1?"s":""}`;
+  renderPager();
   const tbody = $("#rows");
   if(!candidates.length){ tbody.innerHTML = `<tr><td colspan="28" class="muted" style="padding:16px">No candidates match.</td></tr>`; return; }
-  tbody.innerHTML = candidates.map(c => {
+  const shown = candidates.slice((page - 1) * pageSize, page * pageSize);
+  tbody.innerHTML = shown.map(c => {
     const id = c.application_id;
     const scraped = `<div class="scraped">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>`;
     const exam = c.is_sent_exam
       ? `<span class="pill yes">✔ Sent${c.exam_sent_at?(" · "+esc(c.exam_sent_at.slice(0,16))):""}</span>`
       : `<span class="pill no">✘ Not sent</span>`;
     return `<tr data-id="${esc(id)}">
+      <td>${ownerCell(c.owner_email)}</td>
       <td><select class="edit" data-f="name_title" title="Title" style="min-width:64px">${titleOpts(c.name_title)}</select></td>
       <td class="name-cell"><input class="edit" data-f="full_name_edit" value="${esc(c.full_name_edit)}">${scraped}</td>
       <td><input class="edit" data-f="nickname" value="${esc(c.nickname)}" placeholder="—" style="min-width:90px"></td>
@@ -152,7 +198,6 @@ function render(){
       <td>${c.expect_salary?("฿"+esc(c.expect_salary)):"<span class='muted'>—</span>"}</td>
       <td>${esc(c.job_title)||"<span class='muted'>—</span>"}</td>
       <td>${stageBadge(c.stage||"prescreen")}</td>
-      <td>${tcell(ownerName(c.owner_email))}</td>
       <td>${exam}</td>
       <td class="center">${c.resume_downloaded?"✔":"<span class='muted'>—</span>"}</td>
       <td>${yn(c.cv_sent)}</td>
@@ -213,6 +258,17 @@ function exportExcel(){
   window.location = `/api/tracking/export?job_id=${encodeURIComponent(job)}`;
 }
 window.exportExcel = exportExcel;
+
+$("#pageSize").value = String(pageSize);
+$("#pageSize").addEventListener("change", e => {
+  pageSize = +e.target.value; page = 1;
+  try { localStorage.setItem("tracking.pageSize", String(pageSize)); } catch(err){}
+  render();
+});
+$("#pageFirst").addEventListener("click", () => goPage(1));
+$("#pagePrev").addEventListener("click", () => goPage(page - 1));
+$("#pageNext").addEventListener("click", () => goPage(page + 1));
+$("#pageLast").addEventListener("click", () => goPage(Infinity));
 
 $("#jobFilter").addEventListener("change", load);
 $("#stageFilter").addEventListener("change", load);

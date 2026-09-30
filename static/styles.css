@@ -360,6 +360,12 @@ a { color: inherit; text-decoration: none; }
 .pill.owner:hover { border-color: var(--ink-soft); }
 .pill.owner.unowned { opacity: .65; font-weight: 500; }
 .owner-pick { font-size: 12px; padding: 2px 6px; border-radius: 8px; }
+.owner-name { font-weight: 600; white-space: nowrap; }
+.owner-prefix { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.pager { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--bg-2); font-size: 13px; }
+.pager label { display: flex; align-items: center; gap: 8px; }
+.pager .spacer { margin-left: auto; }
+.pager .btn:disabled { opacity: .4; cursor: default; }
 .mine-btn { width: 100%; margin: 8px 0 0; }
 .mine-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
 /* history modal rows */
