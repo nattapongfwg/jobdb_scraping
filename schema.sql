@@ -287,6 +287,23 @@ BEGIN
 END;
 GO
 
+-- Email templates shared by every recruiter (multi-user Phase 2). One row per
+-- template; `doc` is the template's JSON exactly as email_kit/templates.py
+-- normalises it. Replaces the per-machine email_kit/email_template.json, which now
+-- only keeps this PC's settings (user_prefix).
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'email_templates')
+BEGIN
+    CREATE TABLE dbo.email_templates (
+        template_id  NVARCHAR(50)   NOT NULL PRIMARY KEY,
+        doc          NVARCHAR(MAX)  NOT NULL,
+        sort_order   INT            NOT NULL DEFAULT 0,
+        updated_by   NVARCHAR(300)  NULL,     -- dbo.users.email of the last editor
+        updated_at   DATETIME2      NOT NULL
+            DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)
+    );
+END;
+GO
+
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet
 -- (never overwrites an edited value, since those are non-NULL). Separate batch so
 -- the newly-renamed/added column is resolvable.

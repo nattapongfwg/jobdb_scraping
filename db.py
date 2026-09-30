@@ -1054,6 +1054,42 @@ class Database:
             return None
         return self.save_user({**fields, "role": "admin", "is_active": True})
 
+    # ---- email templates: the shared store behind email_kit.templates ---------
+    def load_email_templates(self) -> list[dict[str, Any]] | None:
+        """Every template doc in display order, or None when the table is empty so
+        email_kit.templates falls back to (and migrates) the JSON file."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT doc FROM dbo.email_templates ORDER BY sort_order, template_id")
+        rows = cur.fetchall()
+        if not rows:
+            return None
+        out: list[dict[str, Any]] = []
+        for (doc,) in rows:
+            try:
+                t = json.loads(doc)
+            except ValueError:
+                continue
+            if isinstance(t, dict):
+                out.append(t)
+        return out
+
+    def save_email_templates(self, templates: list[dict[str, Any]],
+                             actor: str | None = None) -> None:
+        """Replace the whole template list (the store's unit of change) in one
+        transaction, stamping who saved it."""
+        cur = self.conn.cursor()
+        try:
+            cur.execute("DELETE FROM dbo.email_templates")
+            for i, t in enumerate(templates):
+                cur.execute(
+                    "INSERT INTO dbo.email_templates (template_id, doc, sort_order, updated_by, "
+                    f"updated_at) VALUES (?, ?, ?, ?, {THAI_NOW})",
+                    str(t.get("id")), json.dumps(t, ensure_ascii=False), i, actor)
+        except Exception:
+            self.conn.rollback()
+            raise
+        self.conn.commit()
+
     def set_job_active(self, job_id: str, is_active: bool) -> None:
         self.conn.cursor().execute(
             "UPDATE dbo.jobs SET is_active = ? WHERE job_id = ?",

@@ -22,9 +22,9 @@ from config import load_config
 from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
                 ensure_schema)
 from email_kit import signature
-from email_kit.templates import (delete_template, get_template, load_settings,
-                                 load_templates, render, render_group, render_interview,
-                                 save_settings, save_template)
+from email_kit.templates import (configure_store, delete_template, get_template,
+                                 load_settings, load_templates, render, render_group,
+                                 render_interview, save_settings, save_template)
 import shortlist
 import evaluation
 import offer
@@ -41,6 +41,22 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 # Pipeline stages (key + label, in order) made available to every template.
 STAGE_LIST = [{"key": k, "label": STAGE_LABELS[k]} for k in STAGES]
+
+
+# Email templates live in the shared database so every recruiter edits the same set
+# (the JSON file next to email_kit keeps only this PC's settings). The first load
+# migrates any templates still in that file.
+def _db_load_templates() -> list[dict] | None:
+    with Database(cfg) as db:
+        return db.load_email_templates()
+
+
+def _db_save_templates(templates: list[dict]) -> None:
+    with Database(cfg) as db:
+        db.save_email_templates(templates, actor=_current_email())
+
+
+configure_store(_db_load_templates, _db_save_templates)
 
 
 class ScrapeManager:

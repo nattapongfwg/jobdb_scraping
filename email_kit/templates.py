@@ -1,10 +1,14 @@
-"""Editable exam/interview email templates, persisted as JSON so HR can manage
-several of them in the web UI (Config Email Template). All templates send from the
-same signed-in mailbox (delegated /me/sendMail), so there is no per-template sender.
+"""Editable exam/interview email templates HR manages in the web UI (Config Email
+Template). All templates send from the same signed-in mailbox (delegated
+/me/sendMail), so there is no per-template sender.
 
-File shape:  {"templates": [ {id, name, type, company, attachments, cc,
-                              default_deadline_time, is_html, custom_vars,
-                              subject, body}, ... ]}
+Storage: the web app plugs the shared database in via configure_store() so every
+recruiter edits the same templates; without it (CLI, tests) the JSON file next to
+this module is used. The JSON file also keeps this PC's `settings` (user_prefix),
+and templates found in it are migrated into the database on first load.
+
+Template shape:  {id, name, type, company, attachments, cc, default_deadline_time,
+                  is_html, custom_vars, subject, body}
 
 Placeholders in `subject` and `body` (filled per-candidate at send time):
     {<column>}        ANY column of the applicants table (full_name_jobdb, email,
@@ -26,6 +30,7 @@ import json
 import re
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from .signature import signature_html, signature_text
 
@@ -292,6 +297,42 @@ def _read_doc() -> dict:
     return {}
 
 
+# ---- shared store (multi-user Phase 2) --------------------------------------
+_store_load: Callable[[], list[dict] | None] | None = None
+_store_save: Callable[[list[dict]], None] | None = None
+
+
+def configure_store(load: Callable[[], list[dict] | None],
+                    save: Callable[[list[dict]], None]) -> None:
+    """Route template storage through the caller's backend: `load()` returns the
+    stored template docs (None = nothing stored yet), `save(templates)` replaces
+    them all. The web app passes the database; nothing configured = JSON file."""
+    global _store_load, _store_save
+    _store_load, _store_save = load, save
+
+
+def _file_templates() -> list[dict] | None:
+    """Raw templates from the JSON file (old single-template shape migrated),
+    or None when the file holds none."""
+    data = _read_doc()
+    if isinstance(data.get("templates"), list) and data["templates"]:
+        return data["templates"]
+    if "subject" in data or "body" in data:
+        return [{**data, "name": data.get("name") or "Interview / Exam"}]
+    return None
+
+
+def _read_templates() -> list[dict] | None:
+    """Raw template docs from the shared store when configured — falling back to
+    the JSON file while the store is still empty, which migrates the file's
+    templates on the following _write — else from the file."""
+    if _store_load is not None:
+        stored = _store_load()
+        if stored is not None:
+            return stored
+    return _file_templates()
+
+
 def load_settings() -> dict:
     """Per-machine Config-Email page settings stored alongside the templates
     (e.g. {"user_prefix": "Na"}). Returns {} when none saved."""
@@ -314,17 +355,9 @@ def save_settings(settings: dict) -> dict:
 def load_templates() -> list[dict]:
     """All templates (defaults seeded on first run; old single-template files migrated).
     Guarantees one group "shortlist" template exists. Seeding/migration is persisted
-    immediately so ids stay stable across reads."""
-    templates: list[dict] | None = None
-    data = _read_doc() or None
-    if data is not None:
-        if isinstance(data.get("templates"), list) and data["templates"]:
-            templates = [_normalize(t) for t in data["templates"]]
-        elif "subject" in data or "body" in data:
-            # Migrate the old single flat template.
-            templates = [_normalize({**data, "name": data.get("name") or "Interview / Exam"})]
-    if templates is None:
-        templates = _seed()
+    immediately so ids stay stable across reads; an unchanged list is not rewritten."""
+    raw = _read_templates()
+    templates = [_normalize(t) for t in raw] if raw else _seed()
     # Ensure a group shortlist template is always available.
     if not any(t.get("type") == "shortlist" for t in templates):
         templates.append(_normalize({"name": "Shortlist (group)", **DEFAULT_SHORTLIST_FIELDS}))
@@ -334,13 +367,18 @@ def load_templates() -> list[dict]:
     # Ensure a job-offer confirmation template is always available.
     if not any(t.get("type") == "offer" for t in templates):
         templates.append(_normalize({"name": "Job Offer (confirmation)", **DEFAULT_OFFER_FIELDS}))
-    _write(templates)   # persist seeds/migrations/added templates (stable ids)
+    if raw is None or templates != raw:
+        _write(templates)   # persist seeds/migrations/added templates (stable ids)
     return templates
 
 
 def _write(templates: list[dict]) -> None:
-    """Persist templates, preserving the per-machine settings object (drops any stale
-    top-level keys from the old flat format)."""
+    """Persist templates: to the shared store when configured, else to the JSON file
+    (preserving the per-machine settings object; drops any stale top-level keys from
+    the old flat format)."""
+    if _store_save is not None:
+        _store_save(templates)
+        return
     out = {"templates": templates}
     settings = _read_doc().get("settings")
     if isinstance(settings, dict) and settings:
