@@ -25,7 +25,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. HR **registers** a username; an **Admin approves** before they can sign in. |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Only Admin edits them; HR is view-only.** |
-| Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. |
+| Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Hosting (Phase 4) | **Parked.** The user does not want to discuss servers yet. Nothing in Phase 4 has started. |
 
 ---
@@ -92,7 +92,7 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
-| `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, HR view-only templates (19 checks) |
+| `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR view-only templates (27 checks) |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
@@ -118,6 +118,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `dbo.stage_history` — `application_id, action, from_value, to_value, actor_email, at`. Actions: `move`, `exam_sent`, `exam_resent`, `exam_failed`, `owner`.
 - `dbo.email_templates` — one row per template (`template_id, doc JSON, sort_order, updated_by, updated_at`).
 - `dbo.requests.created_by / updated_by` (`users.email`), `updated_at`, `revision` (INT, +1 per save).
+- `dbo.requests.status` (`'doing'` default | `'completed'`), `completed_by`, `completed_at`.
 
 ### `db.py`
 - `set_stage(aid, stage, date, exam_sent_by=None, actor=None)` — `UPDATE … WHERE stage = <what we read>`; returns `conflict=True` if someone moved the card first; claims the owner on the first move out of Pending; writes `stage_history`.
@@ -129,7 +130,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `insert_request(..., actor)` records the creator. `update_request(..., actor, revision)` records the
   editor and only writes when `revision` still matches; otherwise returns `conflict=True` + the
   current row. `list_requests / get_request` share `_REQUEST_SELECT`, which joins `users` for
-  `created_by_name / updated_by_name`.
+  `created_by_name / updated_by_name / completed_by_name`.
+- `set_request_status(rid, status, actor)` — `'completed'` records who/when (a second complete keeps
+  the first completer); `'doing'` clears both. Does **not** bump `revision`, so an open edit form still saves.
 
 ### `webapp.py`
 - `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
@@ -140,6 +143,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
   `{"conflict": true, "error": "<name> saved this request at <time> …"}` when a teammate saved
   first; `force: true` overwrites. `_request_json()` formats request rows for JSON/templates.
+- `POST /api/requests/<id>/status` `{status: "completed"|"doing"}` — Admin and HR.
 - `_user_prefix()` = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
 - Context processor injects `me` and `pending_users` into every template; `templates/_who.html` renders the top-bar identity.
 - `PORT` env var chooses the listening port.
@@ -156,7 +160,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `email_templates.html` — users manager (Admin). For HR the editor sits in one
   `<fieldset disabled class="et-readonly">`, Add variable / insert chips are hidden, and the
   mailbox sign-in button is hidden (`CAN_SIGN_IN`).
-- `requests.html` — **Created by** / **Last edited** columns. `request.html` — the same on top of
+- `requests.html` — **Doing / Completed tabs** (with counts; `#completed` in the URL opens that tab),
+  **✔ Complete** beside Edit on Doing, **↩ Reopen** + a Completed (who/when) column on Completed;
+  **Created by** / **Last edited** columns. `request.html` — the same on top of
   the edit form, and an overwrite-or-reload confirm on a 409.
 - `index.html` — scrape panel hidden for HR.
 - `styles.css` — animations/blur removed; owner, history, auth and top-bar styles added.

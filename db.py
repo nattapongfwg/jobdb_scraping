@@ -57,10 +57,12 @@ _REQUEST_SELECT = (
     "r.company, r.department, r.section, r.direct_supervisor, r.buddy, r.head_count, "
     "r.[type], r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2, "
     "r.created_at, r.created_by, cu.name AS created_by_name, "
-    "r.updated_at, r.updated_by, uu.name AS updated_by_name, r.revision "
+    "r.updated_at, r.updated_by, uu.name AS updated_by_name, r.revision, "
+    "r.status, r.completed_at, r.completed_by, pu.name AS completed_by_name "
     "FROM dbo.requests r "
     "LEFT JOIN dbo.users cu ON cu.email = r.created_by "
-    "LEFT JOIN dbo.users uu ON uu.email = r.updated_by ")
+    "LEFT JOIN dbo.users uu ON uu.email = r.updated_by "
+    "LEFT JOIN dbo.users pu ON pu.email = r.completed_by ")
 
 
 def candidate_key(app: dict[str, Any]) -> str | None:
@@ -935,6 +937,29 @@ class Database:
         if current is None:
             return {"ok": False, "missing": True}
         return {"ok": False, "conflict": True, "request": current}
+
+    REQUEST_STATUSES = ("doing", "completed")
+
+    def set_request_status(self, request_id: int, status: str,
+                           actor: str | None = None) -> dict[str, Any] | None:
+        """Mark a hiring request 'completed' (recording `actor` and the time) or
+        back to 'doing' (clearing both). Leaves the form fields and `revision`
+        alone, so an edit form open elsewhere still saves cleanly. Returns the
+        updated row, or None if the id doesn't exist."""
+        if status not in self.REQUEST_STATUSES:
+            raise ValueError("status must be doing or completed.")
+        cur = self.conn.cursor()
+        if status == "completed":
+            cur.execute(
+                f"UPDATE dbo.requests SET status = 'completed', completed_by = ?, "
+                f"completed_at = {THAI_NOW} WHERE request_id = ? AND status <> 'completed'",
+                (actor or None), request_id)
+        else:
+            cur.execute(
+                "UPDATE dbo.requests SET status = 'doing', completed_by = NULL, "
+                "completed_at = NULL WHERE request_id = ?", request_id)
+        self.conn.commit()
+        return self.get_request(request_id)
 
     def get_resume_path(self, application_id: str) -> str | None:
         """Return the stored resume file path for one candidate (or None)."""

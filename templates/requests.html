@@ -22,12 +22,21 @@
   <div class="page-head">
     <div>
       <h1 class="page-title">Submitted <span class="accent">Requests</span></h1>
-      <p class="page-sub">All hiring requests, newest first.</p>
+      <p class="page-sub">All hiring requests, newest first. Mark one <b>Completed</b> when it's filled; reopen it if needed.</p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <a class="btn" href="/request">📝 New request</a>
       <a class="btn secondary" href="/">← Back to Postings</a>
     </div>
+  </div>
+
+  <div class="tabs">
+    <button id="tab-doing" class="active" onclick="setTab('doing')">
+      Doing <span class="tab-count" id="cnt-doing">0</span>
+    </button>
+    <button id="tab-completed" onclick="setTab('completed')">
+      Completed <span class="tab-count" id="cnt-completed">0</span>
+    </button>
   </div>
 
   <div class="card">
@@ -61,13 +70,15 @@
           <th>Acknowledge 2</th>
           <th>Created by</th>
           <th>Last edited</th>
+          <th id="thCompleted" style="display:none">Completed</th>
           <th></th>
         </tr></thead>
-        <tbody id="rows"><tr><td colspan="19" class="muted" style="padding:16px">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="20" class="muted" style="padding:16px">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -77,6 +88,17 @@ const tcell = v => (v!=null && v!=="") ? esc(v) : `<span class="muted">—</span
 const who = (name, at) => (name ? `<b>${esc(name)}</b><br>` : "")
   + (at ? `<span class="muted" style="font-size:12px">${esc(at)}</span>` : (name ? "" : tcell("")));
 let requests = [];
+// Which tab is shown: "doing" (open requests) or "completed". Kept in the URL hash
+// so a reload or a shared link lands on the same tab.
+let tab = location.hash === "#completed" ? "completed" : "doing";
+function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
+function setTab(t){
+  tab = t;
+  history.replaceState(null, "", t === "completed" ? "#completed" : location.pathname);
+  render();
+}
+window.setTab = setTab;
 
 async function load(){
   const data = await (await fetch("/api/requests")).json();
@@ -90,15 +112,26 @@ function filtered(){
   return requests.filter(r => [r.request_code, r.request_name, r.position, r.company,
     r.department, r.section, r.direct_supervisor, r.buddy, r.is_new_replace, r.type,
     r.reason, r.requested_by, r.acknowledge_by_1, r.acknowledge_by_2,
-    r.created_by_name, r.updated_by_name]
+    r.created_by_name, r.updated_by_name, r.completed_by_name]
     .some(v => (v||"").toString().toLowerCase().includes(q)));
 }
 
 function render(){
-  const rows = filtered();
+  const all = filtered();
+  const doing = all.filter(r => r.status !== "completed"), done = all.filter(r => r.status === "completed");
+  $("#cnt-doing").textContent = doing.length; $("#cnt-completed").textContent = done.length;
+  $("#tab-doing").classList.toggle("active", tab === "doing");
+  $("#tab-completed").classList.toggle("active", tab === "completed");
+  const showDone = tab === "completed";
+  $("#thCompleted").style.display = showDone ? "" : "none";
+  const rows = showDone ? done : doing;
+  const cols = showDone ? 20 : 19;
   $("#count").textContent = `${rows.length} request${rows.length!==1?"s":""}`;
   const tbody = $("#rows");
-  if(!rows.length){ tbody.innerHTML = `<tr><td colspan="19" class="muted" style="padding:16px">No requests yet.</td></tr>`; return; }
+  if(!rows.length){
+    const empty = showDone ? "No completed requests." : (requests.length ? "No open requests." : "No requests yet.");
+    tbody.innerHTML = `<tr><td colspan="${cols}" class="muted" style="padding:16px">${empty}</td></tr>`; return;
+  }
   tbody.innerHTML = rows.map(r => `<tr>
     <td>${esc(r.request_id)}</td>
     <td>${tcell(r.request_code)}</td>
@@ -118,9 +151,31 @@ function render(){
     <td>${tcell(r.acknowledge_by_2)}</td>
     <td>${who(r.created_by_name, r.created_at)}</td>
     <td>${r.updated_at ? who(r.updated_by_name, r.updated_at) : tcell("")}</td>
-    <td><a class="btn ghost" href="/request?id=${esc(r.request_id)}">✏ Edit</a></td>
+    ${showDone ? `<td>${who(r.completed_by_name, r.completed_at)}</td>` : ""}
+    <td class="rq-act">
+      <a class="btn ghost" href="/request?id=${esc(r.request_id)}">✏ Edit</a>
+      ${showDone
+        ? `<button class="btn ghost" onclick="setStatus(${r.request_id}, 'doing')" title="Move back to Doing">↩ Reopen</button>`
+        : `<button class="btn secondary" onclick="setStatus(${r.request_id}, 'completed')" title="Move to Completed">✔ Complete</button>`}
+    </td>
   </tr>`).join("");
 }
+
+async function setStatus(id, status){
+  const r = requests.find(x => x.request_id === id); if(!r) return;
+  const label = r.request_name || r.request_code || ("#" + id);
+  const ask = status === "completed" ? `Mark request "${label}" as completed?` : `Reopen request "${label}" (move it back to Doing)?`;
+  if(!confirm(ask)) return;
+  try {
+    const res = await (await fetch(`/api/requests/${id}/status`, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify({status})})).json();
+    if(!res.ok) throw new Error(res.error || "failed");
+    Object.assign(r, res.request);
+    render();
+    toast(status === "completed" ? `✓ "${label}" moved to Completed.` : `↩ "${label}" moved back to Doing.`);
+  } catch(e){ toast("Could not update: " + e.message, 6000); }
+}
+window.setStatus = setStatus;
 
 function clearFilters(){ $("#search").value=""; render(); }
 window.clearFilters = clearFilters;

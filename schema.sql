@@ -133,6 +133,14 @@ IF COL_LENGTH('dbo.requests', 'updated_at') IS NULL
     ALTER TABLE dbo.requests ADD updated_at DATETIME2 NULL;
 IF COL_LENGTH('dbo.requests', 'revision') IS NULL
     ALTER TABLE dbo.requests ADD revision INT NOT NULL DEFAULT 0;
+-- Request status: 'doing' (open, the Doing tab) or 'completed' (the Completed tab),
+-- plus who marked it completed and when (cleared again on reopen).
+IF COL_LENGTH('dbo.requests', 'status') IS NULL
+    ALTER TABLE dbo.requests ADD status NVARCHAR(20) NOT NULL DEFAULT 'doing';
+IF COL_LENGTH('dbo.requests', 'completed_by') IS NULL
+    ALTER TABLE dbo.requests ADD completed_by NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.requests', 'completed_at') IS NULL
+    ALTER TABLE dbo.requests ADD completed_at DATETIME2 NULL;
 IF COL_LENGTH('dbo.jobs', 'is_active') IS NULL
     ALTER TABLE dbo.jobs ADD is_active BIT NOT NULL DEFAULT 1;
 IF COL_LENGTH('dbo.applicants', 'is_sent_exam') IS NULL

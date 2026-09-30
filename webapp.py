@@ -968,11 +968,13 @@ def _request_json(r: dict) -> dict:
     """A dbo.requests row ready for JSON: timestamps as 'YYYY-MM-DD HH:MM' and
     created_by / updated_by names falling back to the email when the user row
     is gone."""
-    for k in ("created_at", "updated_at"):
+    for k in ("created_at", "updated_at", "completed_at"):
         v = r.get(k)
         r[k] = v.strftime("%Y-%m-%d %H:%M") if v is not None else ""
     r["created_by_name"] = r.get("created_by_name") or r.get("created_by") or ""
     r["updated_by_name"] = r.get("updated_by_name") or r.get("updated_by") or ""
+    r["completed_by_name"] = r.get("completed_by_name") or r.get("completed_by") or ""
+    r["status"] = r.get("status") or "doing"
     return r
 
 
@@ -1034,6 +1036,22 @@ def api_requests_update(rid: int):
                         "error": f"{who} saved this request at {cur['updated_at']} "
                                  "while you had it open."}), 409
     return jsonify({"ok": True, "request_id": rid, "revision": res["revision"]})
+
+
+@app.post("/api/requests/<int:rid>/status")
+def api_requests_status(rid: int):
+    """Move a hiring request between the Doing and Completed tabs. Body:
+    {status: "completed" | "doing"}. Completing records who did it; completing
+    an already-completed request keeps the original completer."""
+    status = str((request.get_json(force=True) or {}).get("status", "")).strip()
+    try:
+        with Database(cfg) as db:
+            row = db.set_request_status(rid, status, actor=_current_email())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    if row is None:
+        return jsonify({"ok": False, "error": "Request not found."}), 404
+    return jsonify({"ok": True, "request": _request_json(row)})
 
 
 def _format_deadline(raw: str) -> str:

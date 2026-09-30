@@ -43,6 +43,7 @@
       <p class="page-sub" style="font-size:13px">
         Created by <b>{{ req.created_by_name or '—' }}</b>{% if req.created_at %} · {{ req.created_at }}{% endif %}
         {% if req.updated_at %}&nbsp;·&nbsp; Last edited by <b>{{ req.updated_by_name or '—' }}</b> · {{ req.updated_at }}{% endif %}
+        {% if req.status == 'completed' %}&nbsp;·&nbsp; ✔ Completed by <b>{{ req.completed_by_name or '—' }}</b>{% if req.completed_at %} · {{ req.completed_at }}{% endif %}{% endif %}
       </p>
       {% endif %}
     </div>
