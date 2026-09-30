@@ -261,6 +261,30 @@ IF COL_LENGTH('dbo.applicants', 'request_id') IS NULL
 -- folders, not the current machine's. NULL = sent before this column existed.
 IF COL_LENGTH('dbo.applicants', 'exam_sent_by') IS NULL
     ALTER TABLE dbo.applicants ADD exam_sent_by NVARCHAR(200) NULL;
+-- The recruiter responsible for this candidate (dbo.users.email). Claimed by whoever
+-- first moves the card out of Pending; anyone can reassign. A label only: every
+-- recruiter still sees and acts on every candidate.
+IF COL_LENGTH('dbo.applicants', 'owner_email') IS NULL
+    ALTER TABLE dbo.applicants ADD owner_email NVARCHAR(300) NULL;
+GO
+
+-- Audit trail: who moved which candidate where, and when (multi-user Phase 2).
+-- action: 'move' | 'exam_sent' | 'exam_resent' | 'exam_failed' | 'owner'.
+-- from_value/to_value hold stage keys for moves and owner emails for 'owner'.
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'stage_history')
+BEGIN
+    CREATE TABLE dbo.stage_history (
+        history_id      INT            NOT NULL IDENTITY(1,1) PRIMARY KEY,
+        application_id  NVARCHAR(100)  NOT NULL,
+        action          NVARCHAR(30)   NOT NULL,
+        from_value      NVARCHAR(300)  NULL,
+        to_value        NVARCHAR(300)  NULL,
+        actor_email     NVARCHAR(300)  NULL,     -- dbo.users.email; NULL = user not identified
+        at              DATETIME2      NOT NULL
+            DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)
+    );
+    CREATE INDEX IX_stage_history_app ON dbo.stage_history(application_id, at);
+END;
 GO
 
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet

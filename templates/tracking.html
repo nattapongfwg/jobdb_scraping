@@ -55,6 +55,7 @@
           <th>Expected Salary</th>
           <th>Alchemists Title</th>
           <th>Stage</th>
+          <th>Owner</th>
           <th>Exam</th>
           <th>Resume</th>
           <th>CV</th>
@@ -74,7 +75,7 @@
           <th>Evaluation ⏱</th>
           <th>Offered ⏱</th>
         </tr></thead>
-        <tbody id="rows"><tr><td colspan="27" class="muted" style="padding:16px">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="28" class="muted" style="padding:16px">Loading…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -102,7 +103,11 @@ const STAGES = {{ stages|tojson }};
 const STAGE_NUM = { prescreen:"1. ", wait_prescreen:"1.5 ", sent_exam:"2. ", shortlist:"3. ", interview:"4. ", evaluation:"5. ", offered:"6. " };
 const stageNum = k => STAGE_NUM[k] || "";
 const STAGE_LABEL = Object.fromEntries(STAGES.map(s=>[s.key, stageNum(s.key)+s.label]));
-let candidates = [];
+let candidates = [], users = [];
+const ownerName = e => { const u = users.find(x => x.email === e); return u ? u.name : (e || ""); };
+async function loadUsers(){
+  try { users = (await (await fetch("/api/users")).json()).users || []; } catch(e){ users = []; }
+}
 
 function toast(msg, ms=4000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
   clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
@@ -129,7 +134,7 @@ function stageBadge(k){ const cls = k==="offered"?"yes":(k==="not_interest"?"no"
 function render(){
   $("#count").textContent = `${candidates.length} candidate${candidates.length!==1?"s":""}`;
   const tbody = $("#rows");
-  if(!candidates.length){ tbody.innerHTML = `<tr><td colspan="27" class="muted" style="padding:16px">No candidates match.</td></tr>`; return; }
+  if(!candidates.length){ tbody.innerHTML = `<tr><td colspan="28" class="muted" style="padding:16px">No candidates match.</td></tr>`; return; }
   tbody.innerHTML = candidates.map(c => {
     const id = c.application_id;
     const scraped = `<div class="scraped">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>`;
@@ -146,6 +151,7 @@ function render(){
       <td>${c.expect_salary?("฿"+esc(c.expect_salary)):"<span class='muted'>—</span>"}</td>
       <td>${esc(c.job_title)||"<span class='muted'>—</span>"}</td>
       <td>${stageBadge(c.stage||"prescreen")}</td>
+      <td>${tcell(ownerName(c.owner_email))}</td>
       <td>${exam}</td>
       <td class="center">${c.resume_downloaded?"✔":"<span class='muted'>—</span>"}</td>
       <td>${yn(c.cv_sent)}</td>
@@ -211,7 +217,7 @@ $("#jobFilter").addEventListener("change", load);
 $("#stageFilter").addEventListener("change", load);
 $("#search").addEventListener("input", ()=>{ clearTimeout(window._s); window._s=setTimeout(load, 250); });
 
-(async function init(){ await loadJobs(); await load(); })();
+(async function init(){ await Promise.all([loadJobs(), loadUsers()]); await load(); })();
 </script>
 <script src="{{ url_for('static', filename='fantasy.js') }}"></script>
 </body>

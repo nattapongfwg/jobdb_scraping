@@ -391,8 +391,34 @@ def api_candidate_stage():
     if not aid or not stage:
         return jsonify({"ok": False, "error": "application_id and stage required"}), 400
     with Database(cfg) as db:
-        result = db.set_stage(aid, stage, date)
+        result = db.set_stage(aid, stage, date, actor=_current_email())
     return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@app.post("/api/candidates/owner")
+def api_candidate_owner():
+    """Reassign the recruiter responsible for a candidate (owner badge).
+    Body: {application_id, owner_email} — blank owner_email clears it."""
+    data = request.get_json(force=True)
+    aid = str(data.get("application_id", "")).strip()
+    owner = str(data.get("owner_email", "") or "").strip()
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        if owner and not db.get_user_by_email(owner):
+            return jsonify({"ok": False, "error": "Unknown user."}), 400
+        res = db.set_owner(aid, owner, actor=_current_email())
+    return jsonify(res), (200 if res.get("ok") else 404)
+
+
+@app.get("/api/candidates/history")
+def api_candidate_history():
+    """Who moved / emailed / reassigned this candidate, newest first."""
+    aid = request.args.get("application_id", "").strip()
+    if not aid:
+        return jsonify([])
+    with Database(cfg) as db:
+        return jsonify(db.list_history(aid))
 
 
 @app.get("/api/candidates")
@@ -846,7 +872,7 @@ def api_candidate_send_exam():
         subject, body = render(
             tmpl, cand=db.get_candidate_fields(aid) or cand, deadline=deadline)
         prefix = _user_prefix()
-        claim = db.claim_exam_send(aid, prefix, resend=resend)
+        claim = db.claim_exam_send(aid, prefix, resend=resend, actor=_current_email())
         if not claim.get("ok"):
             return jsonify(claim), 409
         try:
@@ -857,7 +883,7 @@ def api_candidate_send_exam():
                                   sent_folder=f"{prefix}_Sent_Exam" if prefix else None)
         except MailerError as exc:
             # Release the claim and surface the error so HR can fix and retry.
-            db.undo_exam_claim(aid, claim["prev"])
+            db.undo_exam_claim(aid, claim["prev"], actor=_current_email())
             return jsonify({"ok": False, "error": str(exc)}), 400
         # Pre-create the candidate's Email_Reply_Exam folder (résumé inside) so the
         # reply files have a home when they answer.
@@ -984,7 +1010,7 @@ def api_candidate_evaluation():
             recruiter_name=_g("recruiter"), request_id=data.get("request_id"))
 
         # 4) advance to Evaluation (records evaluation_date = the interview date picked).
-        res = db.set_stage(aid, "evaluation", interview_date or None)
+        res = db.set_stage(aid, "evaluation", interview_date or None, actor=_current_email())
     if not res.get("ok"):
         return jsonify({"ok": False, "error":
                         "Form + draft created, but stage move was rejected: "
@@ -1151,7 +1177,8 @@ def api_candidate_offer():
             interviewer_comments=_g("interviewer_comments"),
             recruiter_comments=_g("recruiter_comments"))
 
-        res = db.set_stage(aid, "offered", datetime.now().strftime("%Y-%m-%d"))
+        res = db.set_stage(aid, "offered", datetime.now().strftime("%Y-%m-%d"),
+                           actor=_current_email())
     if not res.get("ok"):
         return jsonify({"ok": False, "error":
                         "Draft created, but stage move was rejected: "

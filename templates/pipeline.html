@@ -25,6 +25,8 @@
     <div class="sidebar">
       <h3>🔎 Filter</h3>
       <input type="text" id="search" class="stage-search" placeholder="Search name…" oninput="render()">
+      <button class="btn tiny secondary mine-btn" id="mineBtn" onclick="toggleMine()"
+              title="Show only the candidates you own">👤 My candidates</button>
       <div class="sort-block">
         <span class="sort-label">💰 Sort by expected salary</span>
         <div class="sort-row">
@@ -85,6 +87,18 @@
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeExamModal()">Cancel</button>
       <button class="btn" id="examSendBtn" onclick="confirmSendExam()">Send &amp; move</button>
+    </div>
+  </div>
+</div>
+
+<!-- history modal: who moved / emailed / reassigned this candidate, newest first -->
+<div class="modal-overlay" id="histModal">
+  <div class="modal">
+    <h3>🕘 History</h3>
+    <p id="histDesc"></p>
+    <div id="histList" class="hist-list"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeHistory()">Close</button>
     </div>
   </div>
 </div>
@@ -243,6 +257,7 @@ function isBackward(curr, target){
 }
 
 let candidates = [], selectedStage = "prescreen", draggedId = null, pendingMove = null;
+let users = [], ME = null, mineOnly = false;   // board users, the current user, "My candidates" filter
 let sortMode = "";
 const selectedIds = new Set();   // checked candidates (Sent Exam multi-select)
 
@@ -264,13 +279,81 @@ function toast(msg, ms=4000){ const t=$("#toast"); t.textContent=msg; t.style.di
   clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
 
 async function load(){
-  candidates = await (await fetch(`/api/candidates?job_id=${encodeURIComponent(JOB_ID)}`)).json();
+  const [cands, ur] = await Promise.all([
+    fetch(`/api/candidates?job_id=${encodeURIComponent(JOB_ID)}`).then(r => r.json()),
+    fetch("/api/users").then(r => r.json()).catch(() => ({users: []})),
+  ]);
+  candidates = cands; users = ur.users || []; ME = ur.current || null;
   render();
 }
+
+/* ---------- owner (responsible recruiter) ---------- */
+const userByEmail = e => users.find(u => u.email === e);
+function ownerLabel(e){ const u = userByEmail(e); return u ? (u.firstname || u.prefix || u.name) : (e ? e.split("@")[0] : ""); }
+function ownerPill(c){
+  const id = esc(c.application_id);
+  if(c.owner_email) return `<span class="pill owner" title="Owner: ${esc(c.owner_email)} — click to change" onclick="editOwner('${id}', this)">👤 ${esc(ownerLabel(c.owner_email))}</span>`;
+  return `<span class="pill owner unowned" title="No owner yet — the first move out of Pending claims it; click to assign" onclick="editOwner('${id}', this)">👤 unowned</span>`;
+}
+function editOwner(id, el){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const sel = document.createElement("select"); sel.className = "owner-pick";
+  sel.innerHTML = `<option value="">— unowned —</option>` +
+    users.filter(u => u.is_active || u.email===c.owner_email)
+         .map(u => `<option value="${esc(u.email)}" ${u.email===c.owner_email?"selected":""}>${esc(u.name)}</option>`).join("");
+  sel.onchange = async () => {
+    try {
+      const r = await (await fetch("/api/candidates/owner", {method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({application_id:id, owner_email: sel.value})})).json();
+      if(!r.ok) throw new Error(r.error||"failed");
+      c.owner_email = r.owner_email;
+      toast(r.owner_email ? `Owner: ${ownerLabel(r.owner_email)}` : "Owner cleared.", 2500);
+    } catch(e){ toast("Could not change owner: "+e.message, 6000); }
+    render();
+  };
+  sel.onblur = () => render();
+  el.replaceWith(sel); sel.focus();
+}
+window.editOwner = editOwner;
+function toggleMine(){
+  if(!ME){ toast("Pick who you are on the Email Templates page first (\"I am\").", 5000); return; }
+  mineOnly = !mineOnly; render();
+}
+window.toggleMine = toggleMine;
+
+/* ---------- history ---------- */
+function histText(h){
+  const lbl = k => STAGE_LABEL[k] || k || "—";
+  const who = e => e ? ownerLabel(e) : "unowned";
+  switch(h.action){
+    case "move":        return `${lbl(h.from_value)} → ${lbl(h.to_value)}`;
+    case "exam_sent":   return `Exam sent · ${lbl(h.from_value)} → ${lbl(h.to_value)}`;
+    case "exam_resent": return "Exam sent again";
+    case "exam_failed": return `Exam email failed · back to ${lbl(h.to_value)}`;
+    case "owner":       return `Owner ${who(h.from_value)} → ${who(h.to_value)}`;
+    default:            return h.action || "";
+  }
+}
+async function openHistory(id){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  $("#histDesc").textContent = c.full_name_edit || c.full_name_jobdb || id;
+  $("#histList").innerHTML = `<div class="muted">Loading…</div>`;
+  $("#histModal").classList.add("open");
+  try {
+    const rows = await (await fetch(`/api/candidates/history?application_id=${encodeURIComponent(id)}`)).json();
+    $("#histList").innerHTML = rows.length
+      ? rows.map(h => `<div class="hist-row"><span class="hist-at">${esc(h.at||"")}</span><span>${esc(histText(h))}</span><span class="hist-who">${esc(h.actor_name || h.actor_email || "unknown user")}</span></div>`).join("")
+      : `<div class="muted">No history yet — moves are recorded from now on.</div>`;
+  } catch(e){ $("#histList").innerHTML = `<div class="muted">Could not load history.</div>`; }
+}
+function closeHistory(){ $("#histModal").classList.remove("open"); }
+window.openHistory = openHistory; window.closeHistory = closeHistory;
 
 function filtered(){
   const q = $("#search").value.trim().toLowerCase();
   let list = candidates.filter(c => (c.stage||"prescreen") === selectedStage &&
+    (!mineOnly || (ME && c.owner_email === ME.email)) &&
     (q==="" || ((c.full_name_edit||c.full_name_jobdb||"")+" "+(c.full_name_jobdb||"")).toLowerCase().includes(q)));
   if(sortMode){
     const dir = sortMode === "salary_asc" ? 1 : -1;
@@ -284,7 +367,7 @@ function filtered(){
   }
   return list;
 }
-function stageCount(k){ return candidates.filter(c => (c.stage||"prescreen")===k).length; }
+function stageCount(k){ return candidates.filter(c => (c.stage||"prescreen")===k && (!mineOnly || (ME && c.owner_email === ME.email))).length; }
 
 /* ---------- stage move ---------- */
 // Core move: POST + optimistic local update mirroring the server backfill.
@@ -299,6 +382,8 @@ async function doMove(id, stageKey, date){
   }
   const c = candidates.find(x => x.application_id===id);
   if(c){
+    // Mirror the server: the first move out of Pending claims the card for the mover.
+    if((c.stage||"prescreen")==="prescreen" && ME && !c.owner_email) c.owner_email = ME.email;
     c.stage = stageKey;
     const idx = stageIndex(stageKey);
     if(idx >= stageIndex("sent_exam")) c.is_sent_exam = true;   // Sent Exam or beyond
@@ -1242,6 +1327,7 @@ function renderCards(){
           <input class="edit cd-edit cd-phone" data-f="phone" value="${esc(fmtPhone(c.phone))}" placeholder="phone">
         </div>
         <div class="cand-tags">
+          ${ownerPill(c)}
           ${c.expect_salary?`<span class="pill wait">💰 ฿${esc(c.expect_salary)}</span>`:""}
           ${examPill(c)}
           ${replyPill(c)}
@@ -1261,6 +1347,7 @@ function renderCards(){
       <div class="cand-actions">
         ${c.resume_downloaded?`<button class="btn tiny secondary" onclick="openResume('${esc(id)}', this.closest('.cand-card').querySelector('.cd-edit[data-f=full_name_edit]').value)">📄 Resume</button>`:`<button class="btn tiny secondary" disabled title="No resume on file">📄 No resume</button>`}
         ${allowedTargets(c.stage||"prescreen").map(tk => moveBtn(id, tk, c.stage||"prescreen")).join("")}
+        <button class="btn tiny secondary" onclick="openHistory('${esc(id)}')" title="Who moved this candidate, and when">🕘</button>
       </div>
     </div>`;
   }).join("");
@@ -1301,6 +1388,7 @@ function updateSortButtons(){
   const a = $("#sortAsc"), d = $("#sortDesc");
   if(a) a.classList.toggle("active", sortMode==="salary_asc");
   if(d) d.classList.toggle("active", sortMode==="salary_desc");
+  const m = $("#mineBtn"); if(m) m.classList.toggle("active", mineOnly);
 }
 function render(){ updateSortButtons(); renderMenu(); renderCards(); }
 window.render = render;

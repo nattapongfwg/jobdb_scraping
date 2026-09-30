@@ -367,7 +367,8 @@ class Database:
         "remark, "                                                                   # r[38] (HR free-text note)
         "exp_total, exp_directly, "                                                  # r[39]-r[40] (AI experience, years)
         "current_salary_edit, minimum_expect_salary_edit, expect_salary_edit, "      # r[41]-r[43] (HR salary fields)
-        "request_id"                                                                 # r[44] (linked hiring request)
+        "request_id, "                                                               # r[44] (linked hiring request)
+        "owner_email"                                                                # r[45] (responsible recruiter)
     )
 
     @staticmethod
@@ -404,6 +405,7 @@ class Database:
             "current_salary_edit": r[41], "minimum_expect_salary_edit": r[42],
             "expect_salary_edit": r[43],
             "request_id": r[44],
+            "owner_email": r[45],
         }
 
     def list_candidates(self, job_id: str, name_query: str = "") -> list[dict[str, Any]]:
@@ -446,8 +448,18 @@ class Database:
             out.append(cand)
         return out
 
+    def _log_history(self, cur: Any, application_id: str, action: str,
+                     from_value: str | None, to_value: str | None,
+                     actor: str | None) -> None:
+        """Append one dbo.stage_history row on the caller's cursor (caller commits)."""
+        cur.execute(
+            "INSERT INTO dbo.stage_history (application_id, action, from_value, to_value, "
+            "actor_email) VALUES (?, ?, ?, ?, ?)",
+            application_id, action, from_value, to_value, actor)
+
     def set_stage(self, application_id: str, new_stage: str, date: str | None,
-                  exam_sent_by: str | None = None) -> dict[str, Any]:
+                  exam_sent_by: str | None = None,
+                  actor: str | None = None) -> dict[str, Any]:
         """Move a candidate to an ALLOWED next stage (branching, server-enforced).
 
         Returns {"ok": True} on success, or {"ok": False, "error": ...} if the move
@@ -458,7 +470,9 @@ class Database:
         teammates (or a double click) racing on the same card can't both "win":
         the loser gets {"ok": False, "conflict": True}. `exam_sent_by` marks a real
         exam send (see claim_exam_send): it stamps exam_sent_at to now and records
-        the sender instead of just backfilling the milestone."""
+        the sender instead of just backfilling the milestone. `actor` (a users
+        email) is written to stage_history and, on the first move out of Pending,
+        becomes the candidate's owner."""
         if new_stage not in STAGES:
             return {"ok": False, "error": f"Unknown stage: {new_stage}"}
         cur = self.conn.cursor()
@@ -474,6 +488,11 @@ class Database:
 
         sets = ["stage = ?"]
         params: list[Any] = [new_stage]
+        # Owner = whoever first moves the card out of Pending (to Wait Pre-screen OR
+        # Not Interest). COALESCE keeps an owner that was set or reassigned earlier.
+        if actor and current == "prescreen":
+            sets.append("owner_email = COALESCE(owner_email, ?)")
+            params.append(actor)
         # Only write the stage's date when one is supplied — a backward move passes
         # no date and must NOT blank the date already recorded for that stage.
         date_col = STAGE_DATE_COLUMN.get(new_stage)
@@ -510,11 +529,42 @@ class Database:
             return {"ok": False, "conflict": True, "error":
                     f"Someone else just moved this candidate to {label}. "
                     "Refresh the board to see the latest."}
+        self._log_history(cur, application_id,
+                          "exam_sent" if exam_sent_by is not None else "move",
+                          current, new_stage, actor)
         self.conn.commit()
         return {"ok": True, "stage": new_stage, "stage_label": STAGE_LABELS[new_stage]}
 
+    def set_owner(self, application_id: str, owner_email: str | None,
+                  actor: str | None = None) -> dict[str, Any]:
+        """Reassign (or clear, with None/'') the recruiter responsible for a
+        candidate, recording the change in stage_history."""
+        owner_email = (owner_email or "").strip() or None
+        cur = self.conn.cursor()
+        row = cur.execute("SELECT owner_email FROM dbo.applicants WHERE application_id = ?",
+                          application_id).fetchone()
+        if not row:
+            return {"ok": False, "error": "Candidate not found"}
+        cur.execute("UPDATE dbo.applicants SET owner_email = ? WHERE application_id = ?",
+                    owner_email, application_id)
+        self._log_history(cur, application_id, "owner", row[0], owner_email, actor)
+        self.conn.commit()
+        return {"ok": True, "owner_email": owner_email}
+
+    def list_history(self, application_id: str) -> list[dict[str, Any]]:
+        """A candidate's audit trail, newest first, with the actor's display name."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT h.action, h.from_value, h.to_value, h.actor_email, u.name, h.at "
+            "FROM dbo.stage_history h LEFT JOIN dbo.users u ON u.email = h.actor_email "
+            "WHERE h.application_id = ? ORDER BY h.at DESC, h.history_id DESC", application_id)
+        return [{"action": r[0], "from_value": r[1], "to_value": r[2], "actor_email": r[3],
+                 "actor_name": r[4],
+                 "at": r[5].isoformat(sep=" ", timespec="minutes") if r[5] else None}
+                for r in cur.fetchall()]
+
     def claim_exam_send(self, application_id: str, sent_by: str,
-                        resend: bool = False) -> dict[str, Any]:
+                        resend: bool = False, actor: str | None = None) -> dict[str, Any]:
         """Reserve the exam send for ONE caller BEFORE the email goes out.
 
         The first caller moves the card to Sent Exam (atomic via set_stage) and is
@@ -538,17 +588,20 @@ class Database:
             return {"ok": False, "already_sent": True, "error":
                     f"The exam was already sent to this candidate{when}{who}."}
         if stage_index(prev["stage"]) < stage_index("sent_exam"):
-            res = self.set_stage(application_id, "sent_exam", None, exam_sent_by=sent_by)
+            res = self.set_stage(application_id, "sent_exam", None, exam_sent_by=sent_by,
+                                 actor=actor)
             if not res.get("ok"):
                 return res
         else:
             # Already at/after Sent Exam (a confirmed re-send): only refresh the record.
             cur.execute(f"UPDATE dbo.applicants SET is_sent_exam = 1, exam_sent_at = {THAI_NOW}, "
                         "exam_sent_by = ? WHERE application_id = ?", sent_by, application_id)
+            self._log_history(cur, application_id, "exam_resent", prev["stage"], prev["stage"], actor)
             self.conn.commit()
         return {"ok": True, "prev": prev}
 
-    def undo_exam_claim(self, application_id: str, prev: dict[str, Any]) -> None:
+    def undo_exam_claim(self, application_id: str, prev: dict[str, Any],
+                        actor: str | None = None) -> None:
         """Put the send record back after the email failed (see claim_exam_send), so
         HR can fix the problem and retry. Only touches the row while it still sits
         where our claim left it, so a move made in the meantime is kept."""
@@ -560,6 +613,8 @@ class Database:
             prev["stage"], 1 if prev["is_sent_exam"] else 0, prev["exam_sent_at"],
             prev["exam_sent_by"], prev["stamp"], application_id,
             "sent_exam" if moved else prev["stage"])
+        self._log_history(self.conn.cursor(), application_id, "exam_failed",
+                          "sent_exam" if moved else prev["stage"], prev["stage"], actor)
         self.conn.commit()
 
     def get_candidate(self, application_id: str) -> dict[str, Any] | None:
