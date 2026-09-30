@@ -246,8 +246,10 @@ def move_to_shortlist(shortlist_base: str | Path, reply_base: str | Path,
     selected candidate's Email_Reply_Exam/<firstname_lastname_emailname> folder
     (résumé + reply files) into it, renamed to the candidate's plain name. If a
     candidate has no reply folder, fall back to copying just their résumé.
-    `email_name` must match what build_reply_folder used. `candidates`: list of
-    {name, resume_path}. Returns (folder_name, folder_path, moved)."""
+    `email_name` suffixes the new folder; a candidate's own `email_name` key (the
+    prefix their exam was sent under) overrides it when locating their reply
+    folder. `candidates`: list of {name, resume_path, email_name?}.
+    Returns (folder_name, folder_path, moved)."""
     sl_base, rp_base = Path(shortlist_base), Path(reply_base)
     folder_name = unique_folder_name(folder_name_for(job_title, today, email_name),
                                      lambda n: (sl_base / n).exists())
@@ -264,7 +266,8 @@ def move_to_shortlist(shortlist_base: str | Path, reply_base: str | Path,
         used.add(dest_name.lower())
         dest = top / dest_name
         # The Email_Reply_Exam folder built at send time (firstname_lastname_emailname).
-        srcfolder = rp_base / reply_folder_name(c.get("name") or "", email_name)
+        srcfolder = rp_base / reply_folder_name(c.get("name") or "",
+                                                c.get("email_name", email_name))
         try:
             if srcfolder.is_dir():
                 shutil.move(str(srcfolder), str(dest))   # whole folder (résumé + reply files)

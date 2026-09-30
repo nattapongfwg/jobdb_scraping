@@ -161,6 +161,14 @@ def _user_prefix() -> str:
     return str(load_settings().get("user_prefix") or "").strip()
 
 
+def _sender_prefix(info: dict) -> str:
+    """The prefix the exam was actually sent under (applicants.exam_sent_by), so
+    reply checks and shortlists find a teammate's folders. NULL means the row
+    predates the column, i.e. it was sent from this machine → our own prefix."""
+    sent_by = info.get("exam_sent_by")
+    return str(sent_by).strip() if sent_by is not None else _user_prefix()
+
+
 class EmailAuth:
     """Drives the one-time Microsoft Graph device-code sign-in for the shared Recruit
     mailbox. Sign-in blocks until the user enters the code, so it runs in a background
@@ -477,7 +485,10 @@ def api_candidate_check_reply():
 
         # exam_sent_at is naive Thai (UTC+7) → UTC floor for the Graph filter.
         since_utc = (info["exam_sent_at"] - timedelta(hours=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        prefix = _user_prefix()
+        # Look in the SENDER's mail + reply folders: a teammate may have sent this
+        # exam under their own prefix. Rows from before exam_sent_by existed were
+        # sent from this machine, so they fall back to our prefix.
+        prefix = _sender_prefix(info)
         try:
             mailer = GraphMailer(cfg)
             hit = mailer.check_reply(info["email"], since_utc,
@@ -500,7 +511,7 @@ def api_candidate_check_reply():
             try:
                 _, saved = shortlist.build_reply_folder(
                     cfg.reply_exam_dir, name, info.get("resume_path"), atts,
-                    email_name=_user_prefix())
+                    email_name=prefix)
             except OSError as exc:
                 logging.warning("Reply folder build failed for %s: %s", aid, exc)
         db.save_reply_status(aid, replied, reply_at, subject)
@@ -741,13 +752,18 @@ def _format_deadline(raw: str) -> str:
 
 @app.post("/api/candidates/send-exam")
 def api_candidate_send_exam():
-    """Send the interview/exam email to ONE candidate, then advance them to
-    'Sent Exam'. The stage advances ONLY if the email actually sent."""
+    """Send the interview/exam email to ONE candidate and advance them to
+    'Sent Exam'. The card is claimed (moved + sender recorded) BEFORE the email
+    goes out so a double click or a second teammate gets "already sent" instead
+    of a second email; if the send then fails the claim is undone so HR can retry.
+    Body: {application_id, deadline, template_id?, resend?}. resend=true is HR's
+    confirmation to email a candidate who already received the exam."""
     data = request.get_json(force=True)
     aid = str(data.get("application_id", "")).strip()
     if not aid:
         return jsonify({"ok": False, "error": "application_id required"}), 400
     deadline = _format_deadline(data.get("deadline", ""))
+    resend = bool(data.get("resend"))
 
     with Database(cfg) as db:
         cand = db.get_candidate(aid)
@@ -766,6 +782,9 @@ def api_candidate_send_exam():
         subject, body = render(
             tmpl, cand=db.get_candidate_fields(aid) or cand, deadline=deadline)
         prefix = _user_prefix()
+        claim = db.claim_exam_send(aid, prefix, resend=resend)
+        if not claim.get("ok"):
+            return jsonify(claim), 409
         try:
             GraphMailer(cfg).send(cand["email"], subject, body,
                                   attachment_paths=tmpl.get("attachments", []),
@@ -773,10 +792,9 @@ def api_candidate_send_exam():
                                   cc_emails=tmpl.get("cc", []),
                                   sent_folder=f"{prefix}_Sent_Exam" if prefix else None)
         except MailerError as exc:
-            # Block the move — surface the error so HR can fix and retry.
+            # Release the claim and surface the error so HR can fix and retry.
+            db.undo_exam_claim(aid, claim["prev"])
             return jsonify({"ok": False, "error": str(exc)}), 400
-        # Sent OK → advance to Sent Exam (backfills is_sent_exam + exam_sent_at).
-        res = db.set_stage(aid, "sent_exam", None)
         # Pre-create the candidate's Email_Reply_Exam folder (résumé inside) so the
         # reply files have a home when they answer.
         try:
@@ -787,10 +805,7 @@ def api_candidate_send_exam():
             logging.info("Reply folder ready: %s", folder)
         except Exception as exc:  # noqa: BLE001 — folder is best-effort, never block the send
             logging.warning("Could not pre-create reply folder for %s: %s", aid, exc)
-    if not res.get("ok"):
-        return jsonify({"ok": False, "error":
-                        "Email sent, but stage move was rejected: " + res.get("error", "")}), 409
-    return jsonify({"ok": True, "stage_label": res.get("stage_label", "Sent Exam")})
+    return jsonify({"ok": True, "stage_label": STAGE_LABELS["sent_exam"]})
 
 
 @app.post("/api/candidates/interview-event")
@@ -1091,6 +1106,10 @@ def api_candidates_shortlist_email():
     if not ids:
         return jsonify({"ok": False, "error": "No candidates selected."}), 400
 
+    # Tag the shortlist folder with the teammate prefix (suffix) so two teammates
+    # shortlisting the same job on the same day get distinct folders. Blank prefix
+    # keeps the plain <job>_dd_mm_yyyy name.
+    email_name = _user_prefix()
     with Database(cfg) as db:
         cands, job_title = [], ""
         for aid in ids:
@@ -1102,6 +1121,8 @@ def api_candidates_shortlist_email():
                 "title": info.get("name_title") or "",
                 "summary": info.get("ai_summary") or "",
                 "resume_path": info.get("resume_path") or "",
+                # Each reply folder carries the suffix of whoever SENT that exam.
+                "email_name": _sender_prefix(info),
             })
             if not job_title:
                 job_title = info.get("job_title") or ""
@@ -1126,12 +1147,6 @@ def api_candidates_shortlist_email():
     # link works immediately (no waiting for local→cloud sync); then remove the local
     # source (= a move). Falls back to a pure local move if Graph/Files is unavailable.
     drive_base = cfg.shortlist_onedrive_dir
-    # Reply folders were named with the teammate prefix suffix at send time, so
-    # locate them with the same suffix.
-    email_name = _user_prefix()
-    # Tag the shortlist folder with the teammate prefix (suffix) so two teammates
-    # shortlisting the same job on the same day get distinct folders. Blank prefix
-    # keeps the plain <job>_dd_mm_yyyy name.
     folder_name, link_url, copied = shortlist.folder_name_for(job_title, prefix=email_name), "", 0
     try:
         folder_name = shortlist.unique_folder_name(
@@ -1139,7 +1154,8 @@ def api_candidates_shortlist_email():
             lambda n: (Path(cfg.shortlist_dir) / n).exists() or mailer.path_exists(f"{drive_base}/{n}"))
         for c in cands:
             sub = shortlist.subfolder_name(c.get("name") or "")
-            srcdir = shortlist.candidate_dir(cfg.reply_exam_dir, c.get("name") or "", email_name)
+            srcdir = shortlist.candidate_dir(cfg.reply_exam_dir, c.get("name") or "",
+                                             c.get("email_name", email_name))
             if srcdir:                                   # upload the whole reply folder
                 # Recurse so nested subfolders are preserved (not just top-level
                 # files). rel keeps each file's path under the candidate subfolder,
@@ -1199,4 +1215,5 @@ if __name__ == "__main__":
     # Ensure DB + schema (adds the new columns) before serving.
     ensure_database(cfg)
     ensure_schema(cfg)
-    app.run(host="127.0.0.1", port=2757, debug=False)
+    # PORT lets a dev copy of the board run beside the live one (default 2757).
+    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "2757")), debug=False)

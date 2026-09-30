@@ -235,6 +235,11 @@ IF COL_LENGTH('dbo.applicants', 'expect_salary_edit') IS NULL
 -- department/section (+ role from the job title) — see db.set_request_fields.
 IF COL_LENGTH('dbo.applicants', 'request_id') IS NULL
     ALTER TABLE dbo.applicants ADD request_id INT NULL;
+-- Who sent the exam email (the teammate prefix today, the signed-in user once the
+-- board has logins). Reply checks and shortlists look in the SENDER's mail/reply
+-- folders, not the current machine's. NULL = sent before this column existed.
+IF COL_LENGTH('dbo.applicants', 'exam_sent_by') IS NULL
+    ALTER TABLE dbo.applicants ADD exam_sent_by NVARCHAR(200) NULL;
 GO
 
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet

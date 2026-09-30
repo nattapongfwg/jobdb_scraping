@@ -446,12 +446,19 @@ class Database:
             out.append(cand)
         return out
 
-    def set_stage(self, application_id: str, new_stage: str, date: str | None) -> dict[str, Any]:
+    def set_stage(self, application_id: str, new_stage: str, date: str | None,
+                  exam_sent_by: str | None = None) -> dict[str, Any]:
         """Move a candidate to an ALLOWED next stage (branching, server-enforced).
 
         Returns {"ok": True} on success, or {"ok": False, "error": ...} if the move
         is invalid. Moving forward records the stage's date and backfills the
-        is_sent_exam / cv_sent milestones so the pipeline timeline never has gaps."""
+        is_sent_exam / cv_sent milestones so the pipeline timeline never has gaps.
+
+        The write is conditional on the stage still being the one we read, so two
+        teammates (or a double click) racing on the same card can't both "win":
+        the loser gets {"ok": False, "conflict": True}. `exam_sent_by` marks a real
+        exam send (see claim_exam_send): it stamps exam_sent_at to now and records
+        the sender instead of just backfilling the milestone."""
         if new_stage not in STAGES:
             return {"ok": False, "error": f"Unknown stage: {new_stage}"}
         cur = self.conn.cursor()
@@ -482,15 +489,78 @@ class Database:
         # and stamp exam_sent_at (keep an existing real send time if already set).
         if stage_index(new_stage) >= stage_index("sent_exam"):
             sets.append("is_sent_exam = 1")
-            sets.append(f"exam_sent_at = COALESCE(exam_sent_at, {THAI_NOW})")
+            if exam_sent_by is not None:
+                sets.append(f"exam_sent_at = {THAI_NOW}")
+                sets.append("exam_sent_by = ?")
+                params.append(exam_sent_by)
+            else:
+                sets.append(f"exam_sent_at = COALESCE(exam_sent_at, {THAI_NOW})")
         # CV is considered sent once a candidate is shortlisted or beyond.
         if stage_index(new_stage) >= stage_index("shortlist"):
             sets.append("cv_sent = 1")
-        params.append(application_id)
-        cur.execute(f"UPDATE dbo.applicants SET {', '.join(sets)} WHERE application_id = ?",
-                    *params)
+        params += [application_id, current]
+        cur.execute(f"UPDATE dbo.applicants SET {', '.join(sets)} "
+                    "WHERE application_id = ? AND ISNULL(stage, 'prescreen') = ?", *params)
+        if cur.rowcount == 0:
+            # The stage changed between our read and our write: someone else moved
+            # this card first. Leave their move alone and tell the caller.
+            now = cur.execute("SELECT stage FROM dbo.applicants WHERE application_id = ?",
+                              application_id).fetchone()
+            label = STAGE_LABELS.get((now[0] if now else None) or "prescreen", "another stage")
+            return {"ok": False, "conflict": True, "error":
+                    f"Someone else just moved this candidate to {label}. "
+                    "Refresh the board to see the latest."}
         self.conn.commit()
         return {"ok": True, "stage": new_stage, "stage_label": STAGE_LABELS[new_stage]}
+
+    def claim_exam_send(self, application_id: str, sent_by: str,
+                        resend: bool = False) -> dict[str, Any]:
+        """Reserve the exam send for ONE caller BEFORE the email goes out.
+
+        The first caller moves the card to Sent Exam (atomic via set_stage) and is
+        recorded as the sender; a double click or a second teammate is told the
+        exam is already sent instead of emailing the candidate twice. `resend=True`
+        is HR's explicit confirmation to email again: it skips that guard and
+        refreshes exam_sent_at / exam_sent_by. Returns {"ok": True, "prev": ...}
+        (pass `prev` to undo_exam_claim if the email then fails) or {"ok": False,
+        "error": ...} with `already_sent` set when the guard fired."""
+        cur = self.conn.cursor()
+        row = cur.execute(
+            "SELECT stage, is_sent_exam, exam_sent_at, exam_sent_by, sent_exam_stamped_date "
+            "FROM dbo.applicants WHERE application_id = ?", application_id).fetchone()
+        if not row:
+            return {"ok": False, "error": "Candidate not found"}
+        prev = {"stage": row[0] or "prescreen", "is_sent_exam": bool(row[1]),
+                "exam_sent_at": row[2], "exam_sent_by": row[3], "stamp": row[4]}
+        if prev["is_sent_exam"] and not resend:
+            when = f" on {row[2]:%d %b %Y %H:%M}" if row[2] else ""
+            who = f" by {row[3]}" if row[3] else ""
+            return {"ok": False, "already_sent": True, "error":
+                    f"The exam was already sent to this candidate{when}{who}."}
+        if stage_index(prev["stage"]) < stage_index("sent_exam"):
+            res = self.set_stage(application_id, "sent_exam", None, exam_sent_by=sent_by)
+            if not res.get("ok"):
+                return res
+        else:
+            # Already at/after Sent Exam (a confirmed re-send): only refresh the record.
+            cur.execute(f"UPDATE dbo.applicants SET is_sent_exam = 1, exam_sent_at = {THAI_NOW}, "
+                        "exam_sent_by = ? WHERE application_id = ?", sent_by, application_id)
+            self.conn.commit()
+        return {"ok": True, "prev": prev}
+
+    def undo_exam_claim(self, application_id: str, prev: dict[str, Any]) -> None:
+        """Put the send record back after the email failed (see claim_exam_send), so
+        HR can fix the problem and retry. Only touches the row while it still sits
+        where our claim left it, so a move made in the meantime is kept."""
+        moved = stage_index(prev["stage"]) < stage_index("sent_exam")
+        self.conn.cursor().execute(
+            "UPDATE dbo.applicants SET stage = ?, is_sent_exam = ?, exam_sent_at = ?, "
+            "exam_sent_by = ?, sent_exam_stamped_date = ? "
+            "WHERE application_id = ? AND ISNULL(stage, 'prescreen') = ?",
+            prev["stage"], 1 if prev["is_sent_exam"] else 0, prev["exam_sent_at"],
+            prev["exam_sent_by"], prev["stamp"], application_id,
+            "sent_exam" if moved else prev["stage"])
+        self.conn.commit()
 
     def get_candidate(self, application_id: str) -> dict[str, Any] | None:
         cur = self.conn.cursor()
@@ -776,7 +846,7 @@ class Database:
         cur.execute(
             "SELECT a.resume_path, a.resume_downloaded, a.full_name_edit, "
             "a.full_name_jobdb, j.title, a.ai_summary, a.name_title, "
-            "a.university, a.major, a.ai_extract_json "
+            "a.university, a.major, a.ai_extract_json, a.exam_sent_by "
             "FROM dbo.applicants a LEFT JOIN dbo.jobs j ON j.job_id = a.job_id "
             "WHERE a.application_id = ?", application_id)
         r = cur.fetchone()
@@ -785,7 +855,8 @@ class Database:
         return {"resume_path": r[0], "resume_downloaded": bool(r[1]),
                 "full_name_edit": r[2], "full_name_jobdb": r[3],
                 "job_title": r[4], "ai_summary": r[5], "name_title": r[6],
-                "university": r[7], "major": r[8], "ai_extract_json": r[9]}
+                "university": r[7], "major": r[8], "ai_extract_json": r[9],
+                "exam_sent_by": r[10]}
 
     def save_ai_summary(self, application_id: str, summary: str) -> None:
         """Store a generated resume summary (stamped with Thai local time)."""
@@ -820,7 +891,7 @@ class Database:
         cur = self.conn.cursor()
         cur.execute(
             "SELECT email, is_sent_exam, exam_sent_at, full_name_edit, full_name_jobdb, "
-            "resume_path, reply_received, reply_at, reply_subject "
+            "resume_path, reply_received, reply_at, reply_subject, exam_sent_by "
             "FROM dbo.applicants WHERE application_id = ?", application_id)
         r = cur.fetchone()
         if not r:
@@ -830,7 +901,8 @@ class Database:
                 "full_name_edit": r[3], "full_name_jobdb": r[4], "resume_path": r[5],
                 "reply_received": (None if r[6] is None else bool(r[6])),
                 "reply_at": r[7].isoformat(sep=" ", timespec="minutes") if r[7] else None,
-                "reply_subject": r[8]}
+                "reply_subject": r[8],
+                "exam_sent_by": r[9]}            # None = sent before the column existed
 
     def save_reply_status(self, application_id: str, replied: bool,
                           reply_at: str | None, subject: str | None) -> None:

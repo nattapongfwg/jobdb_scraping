@@ -293,7 +293,10 @@ async function doMove(id, stageKey, date){
   const r = await (await fetch("/api/candidates/stage", {method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({application_id:id, stage:stageKey, date})})).json();
-  if(!r.ok) throw new Error(r.error||"move failed");
+  if(!r.ok){
+    if(r.conflict) load();   // someone else moved this card first → show their move
+    throw new Error(r.error||"move failed");
+  }
   const c = candidates.find(x => x.application_id===id);
   if(c){
     c.stage = stageKey;
@@ -760,7 +763,7 @@ window.openExamModal = openExamModal;
 function closeExamModal(){ pendingExam=null; $("#examModal").classList.remove("open"); }
 window.closeExamModal = closeExamModal;
 
-async function confirmSendExam(){
+async function confirmSendExam(resend){
   if(!pendingExam) return;
   const date = $("#examDate").value, time = $("#examTime").value || "23:59";
   if(!date){ alert("Please pick a deadline date."); return; }
@@ -770,7 +773,13 @@ async function confirmSendExam(){
     const r = await (await fetch("/api/candidates/send-exam", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({application_id:id, deadline:`${date}T${time}`,
-        template_id:$("#examTemplate").value})})).json();
+        template_id:$("#examTemplate").value, resend: !!resend})})).json();
+    if(!r.ok && r.already_sent && !resend){
+      // The server refused: this candidate already got the exam (maybe from a
+      // teammate, or this card is stale). HR decides whether to email again.
+      if(confirm(r.error + "\n\nSend the exam email again?")){ btn.disabled = false; return confirmSendExam(true); }
+      closeExamModal(); await load(); return;
+    }
     if(!r.ok) throw new Error(r.error||"send failed");
     const c = candidates.find(x => x.application_id===id);
     if(c){ c.stage = "sent_exam"; c.is_sent_exam = true; }
