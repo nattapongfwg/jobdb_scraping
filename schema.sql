@@ -63,6 +63,29 @@ BEGIN
     );
 END;
 
+-- Local sign-in (multi-user Phase 3): username + password hash. HR colleagues
+-- register themselves and wait for an Admin to approve; Admin-created users are
+-- approved at once. role: 'admin' (system) | 'hr'.
+IF COL_LENGTH('dbo.users', 'username') IS NULL
+    ALTER TABLE dbo.users ADD username NVARCHAR(100) NULL;
+IF COL_LENGTH('dbo.users', 'password_hash') IS NULL
+    ALTER TABLE dbo.users ADD password_hash NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.users', 'is_approved') IS NULL
+    ALTER TABLE dbo.users ADD is_approved BIT NOT NULL DEFAULT 0;
+IF COL_LENGTH('dbo.users', 'approved_by') IS NULL
+    ALTER TABLE dbo.users ADD approved_by NVARCHAR(300) NULL;
+IF COL_LENGTH('dbo.users', 'approved_at') IS NULL
+    ALTER TABLE dbo.users ADD approved_at DATETIME2 NULL;
+IF COL_LENGTH('dbo.users', 'last_login_at') IS NULL
+    ALTER TABLE dbo.users ADD last_login_at DATETIME2 NULL;
+GO
+-- Users that predate self-registration were added by an Admin → approved.
+UPDATE dbo.users SET is_approved = 1 WHERE is_approved = 0 AND username IS NULL;
+UPDATE dbo.users SET role = 'hr' WHERE role = 'recruiter';
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_users_username')
+    CREATE UNIQUE INDEX UX_users_username ON dbo.users(username) WHERE username IS NOT NULL;
+GO
+
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'requests')
 BEGIN
     CREATE TABLE dbo.requests (

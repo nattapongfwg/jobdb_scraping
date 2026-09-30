@@ -2,6 +2,7 @@
 .env
 .graph_token_cache*.json
 email_kit/email_template.json
+.secret_key
 
 # Playwright session / browser state
 storage_state.json

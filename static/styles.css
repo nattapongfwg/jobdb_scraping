@@ -68,6 +68,33 @@ a { color: inherit; text-decoration: none; }
   background: var(--blue); border: 0; box-shadow: none;
 }
 .topbar nav { display: flex; gap: 8px; }
+/* signed-in user, right side of the top bar */
+.topbar .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-soft); }
+.topbar .who-name { font-weight: 600; color: var(--ink); }
+.topbar .who-role { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 20px; background: var(--panel-2); border: 1px solid var(--line); }
+.topbar .who-role.admin { color: var(--gold-2); border-color: var(--gold); }
+.topbar .who-pending { font-size: 12px; font-weight: 600; color: var(--amber); background: var(--amber-bg);
+  padding: 2px 9px; border-radius: 20px; text-decoration: none; }
+.topbar .who-out { color: var(--ink-soft); text-decoration: none; border: 1px solid var(--line); padding: 4px 10px; border-radius: 8px; }
+.topbar .who-out:hover { color: var(--ink); border-color: var(--blue); }
+/* sign-in / register / first-run setup */
+.auth-wrap { display: flex; justify-content: center; padding: 48px 16px 80px; }
+.auth-card { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 28px; box-shadow: var(--shadow); }
+.auth-card .page-title { margin-top: 0; }
+.auth-card label { display: block; font-size: 12.5px; color: var(--ink-soft); margin: 12px 0 0; }
+.auth-card input { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 9px 11px; font: inherit;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--bg-2); color: var(--ink); }
+.auth-card input:focus { outline: none; border-color: var(--blue); }
+.auth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.auth-card .btn { width: 100%; margin-top: 18px; }
+.auth-error { background: var(--red-bg); color: var(--red); padding: 9px 12px; border-radius: 9px; font-size: 13px; }
+.auth-notice { background: var(--green-bg); color: var(--green); padding: 9px 12px; border-radius: 9px; font-size: 13px; }
+.auth-foot { font-size: 12.5px; margin-top: 14px; }
+.users-table tr.u-pending td { background: var(--amber-bg); }
+.users-table td.u-status { white-space: nowrap; font-size: 12px; }
+@media (max-width: 720px) { .topbar { flex-wrap: wrap; gap: 8px; } .auth-grid { grid-template-columns: 1fr; } }
 .topbar nav a {
   padding: 8px 14px; border-radius: 9px; font-size: 14px; color: var(--ink-soft);
   border: 1px solid transparent;

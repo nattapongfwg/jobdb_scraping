@@ -125,6 +125,28 @@ See `QUICKSTART.md` and `README.md` for full scraper usage and flags.
 
 ---
 
+## 7. Sign in — accounts and roles
+
+The board requires a sign-in. Accounts live in the database (`dbo.users`), so every
+PC that points at the same database shares them.
+
+- **First run:** opening the board sends you to `/setup` to create the **Admin**
+  account (username, password, signature details). It is pre-filled from the built-in
+  recruiter defaults.
+- **HR colleagues** register themselves at `/register`. Their account is *Pending
+  approval* until an Admin approves it (Email Templates page → **Manage users**, or
+  the "N pending" link in the top bar). The details they enter become their email
+  signature and mail-folder prefix.
+- **Roles:** *Admin* = everything, including scraping from SEEK, the Recruit mailbox
+  sign-in, editing email templates and managing users. *HR* = the whole pipeline
+  (candidates, exams, shortlists, interviews, evaluations, offers) but read-only
+  templates and no scraping.
+- **Passwords** are stored as salted SHA-256 hashes. An Admin resets one by typing a
+  new password on the user's row in Manage users. Deactivating a user signs them out.
+- Sessions are signed with `.secret_key` (created automatically next to `webapp.py`,
+  not in Git). Set `SECRET_KEY` in `.env` instead if you prefer; changing it signs
+  everyone out. `PORT` in `.env` changes the listening port (default 2757).
+
 ## What to bring over separately (not in Git)
 
 These are excluded from the repo; copy them from the old computer if you want them:
@@ -163,3 +185,9 @@ The Excel evaluation templates (`Evaluate_Original.xlsx`, `Evaluation_Template.x
   `.\service.ps1 restart` (or double-click `deploy.cmd`).
 - **Board not up after logon?** → `.\service.ps1 status`, then `.\service.ps1 logs`. If the
   task is missing, run `.\service.ps1 install` again.
+- **Sent to `/setup` although the Admin already exists?** → no active Admin has a
+  password (the row was deactivated or its password cleared). Create the Admin again
+  from `/setup`, or fix the row in `dbo.users`.
+- **Forgot the only Admin password?** → clear it in SQL (`UPDATE dbo.users SET
+  password_hash = NULL WHERE username = '<admin>'`) and open the board: `/setup`
+  appears again for that account.

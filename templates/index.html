@@ -14,6 +14,7 @@
     <a href="/" class="active">Job Postings</a>
     <a href="/tracking">Status Tracking</a>
   </nav>
+  {% include "_who.html" %}
 </div>
 
 <div class="container full">
@@ -30,7 +31,7 @@
   </div>
 
   <!-- Scrape from SEEK -->
-  <div class="scrape-panel">
+  <div class="scrape-panel"{% if not (me and me.role == 'admin') %} style="display:none"{% endif %}>
     <div class="sp-head" onclick="toggleScrape()">
       <div>
         <h3>🔄 Scrape from SEEK</h3>

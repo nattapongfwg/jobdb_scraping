@@ -8,7 +8,10 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import secrets
 import logging
 import re
 from typing import Any
@@ -118,6 +121,30 @@ STAGE_STAMP_COLUMN = {
     "evaluation": "evaluation_stamped_date",
     "offered":    "offered_stamped_date",
 }
+
+
+def hash_password(password: str) -> str:
+    """SHA-256 of a per-user random salt + the password, stored as
+    'sha256$<salt hex>$<digest hex>' (the salt stops two users with the same
+    password sharing a hash). SHA-256 only — no other algorithm is used."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    return f"sha256${salt}${digest}"
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    """Check a password against hash_password() output. A bare 64-hex value is
+    accepted as an unsalted SHA-256 digest (rows imported from another system)."""
+    if not stored:
+        return False
+    parts = stored.split("$")
+    if len(parts) == 3 and parts[0] == "sha256":
+        digest = hashlib.sha256((parts[1] + password).encode("utf-8")).hexdigest()
+        return secrets.compare_digest(digest, parts[2])
+    if len(stored) == 64:
+        return secrets.compare_digest(hashlib.sha256(password.encode("utf-8")).hexdigest(),
+                                      stored.lower())
+    return False
 
 
 def stage_index(stage: str) -> int:
@@ -975,15 +1002,77 @@ class Database:
             "WHERE application_id = ?", application_id)
         self.conn.commit()
 
-    # ---- users: the recruiters who use the board (multi-user Phase 2) ----------
-    _USER_COLS = "user_id, email, name, firstname, mobile, tel, prefix, role, is_active"
-    USER_ROLES = ("admin", "recruiter")
+    # ---- users: the people who use the board (multi-user Phases 2-3) ----------
+    _USER_COLS = ("user_id, email, name, firstname, mobile, tel, prefix, role, is_active, "
+                  "username, is_approved, password_hash, last_login_at")
+    USER_ROLES = ("admin", "hr")
+    _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
+    MIN_PASSWORD = 8
 
     @staticmethod
-    def _row_to_user(r: Any) -> dict[str, Any]:
-        return {"user_id": r[0], "email": r[1], "name": r[2], "firstname": r[3],
-                "mobile": r[4], "tel": r[5], "prefix": r[6],
-                "role": r[7] or "recruiter", "is_active": bool(r[8])}
+    def _row_to_user(r: Any, with_hash: bool = False) -> dict[str, Any]:
+        """A users row as the API exposes it: never the hash itself (has_password
+        says whether one is set); `with_hash` adds it under `_password_hash` for the
+        login check only."""
+        role = r[7] or "hr"
+        out = {"user_id": r[0], "email": r[1], "name": r[2], "firstname": r[3],
+               "mobile": r[4], "tel": r[5], "prefix": r[6],
+               "role": "hr" if role == "recruiter" else role, "is_active": bool(r[8]),
+               "username": r[9], "is_approved": bool(r[10]), "has_password": bool(r[11]),
+               "last_login_at": r[12].isoformat(sep=" ", timespec="minutes") if r[12] else None}
+        if with_hash:
+            out["_password_hash"] = r[11]
+        return out
+
+    def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
+        r = self.conn.cursor().execute(
+            f"SELECT {self._USER_COLS} FROM dbo.users WHERE user_id = ?", int(user_id)).fetchone()
+        return self._row_to_user(r) if r else None
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        """For the sign-in check: the row (with `_password_hash`) or None."""
+        r = self.conn.cursor().execute(
+            f"SELECT {self._USER_COLS} FROM dbo.users WHERE username = ?",
+            (username or "").strip()).fetchone()
+        return self._row_to_user(r, with_hash=True) if r else None
+
+    def admin_has_password(self) -> bool:
+        """False until the first Admin account has been set up (/setup)."""
+        return bool(self.conn.cursor().execute(
+            "SELECT TOP 1 1 FROM dbo.users WHERE role = 'admin' AND is_active = 1 "
+            "AND password_hash IS NOT NULL").fetchone())
+
+    def first_admin_without_password(self) -> dict[str, Any] | None:
+        """The seeded Admin row that /setup turns into the first real account."""
+        r = self.conn.cursor().execute(
+            f"SELECT TOP 1 {self._USER_COLS} FROM dbo.users WHERE role = 'admin' "
+            "AND password_hash IS NULL ORDER BY user_id").fetchone()
+        return self._row_to_user(r) if r else None
+
+    def register_user(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Self-registration: an HR account that cannot sign in until an Admin
+        approves it. Username and password are required here."""
+        if not str(data.get("username") or "").strip():
+            raise ValueError("Please choose a username.")
+        if not data.get("password"):
+            raise ValueError("Please choose a password.")
+        return self.save_user({**data, "role": "hr", "is_active": True, "is_approved": False})
+
+    def approve_user(self, user_id: int, by_email: str | None) -> dict[str, Any] | None:
+        cur = self.conn.cursor()
+        cur.execute(f"UPDATE dbo.users SET is_approved = 1, approved_by = ?, approved_at = {THAI_NOW} "
+                    "WHERE user_id = ?", by_email, int(user_id))
+        self.conn.commit()
+        return self.get_user_by_id(user_id)
+
+    def touch_login(self, user_id: int) -> None:
+        self.conn.cursor().execute(
+            f"UPDATE dbo.users SET last_login_at = {THAI_NOW} WHERE user_id = ?", int(user_id))
+        self.conn.commit()
+
+    def count_pending_users(self) -> int:
+        return int(self.conn.cursor().execute(
+            "SELECT COUNT(*) FROM dbo.users WHERE is_approved = 0 AND is_active = 1").fetchone()[0])
 
     def list_users(self, active_only: bool = False) -> list[dict[str, Any]]:
         cur = self.conn.cursor()
@@ -1009,37 +1098,55 @@ class Database:
 
     def save_user(self, data: dict[str, Any]) -> dict[str, Any]:
         """Insert (no user_id) or update one user. Raises ValueError with a message
-        fit for the UI when a required field is missing or email/prefix clash with
-        another user. Returns the saved row."""
+        fit for the UI when a required field is missing or email/prefix/username
+        clash with another user. `password` (optional) is hashed; blank keeps the
+        current one. `is_approved` defaults to True (Admin-created users can sign
+        in at once); register_user passes False. Returns the saved row."""
         def _s(k: str, n: int) -> str:
             return str(data.get(k) or "").strip()[:n]
+        def _b(k: str, default: bool) -> int:
+            v = data.get(k, default)
+            return 1 if v in (True, 1, "1", "true", "on") else 0
         email, name, prefix = _s("email", 300), _s("name", 200), _s("prefix", 20)
         if not email or not name or not prefix:
             raise ValueError("Email, name and folder prefix are required.")
-        role = _s("role", 20) or "recruiter"
+        role = _s("role", 20) or "hr"
+        role = "hr" if role == "recruiter" else role
         if role not in self.USER_ROLES:
-            raise ValueError(f"Role must be one of: {', '.join(self.USER_ROLES)}.")
+            raise ValueError("Role must be Admin or HR.")
+        username = _s("username", 100) or None
+        if username and not self._USERNAME_RE.match(username):
+            raise ValueError("Username: 3-50 letters, digits, dots, dashes or underscores.")
+        password = data.get("password") or None          # None/blank = keep the current one
+        if password is not None and len(str(password)) < self.MIN_PASSWORD:
+            raise ValueError(f"Password must be at least {self.MIN_PASSWORD} characters.")
         uid = data.get("user_id")
         uid = int(uid) if uid not in (None, "", 0, "0") else None
         cur = self.conn.cursor()
         clash = cur.execute(
-            "SELECT TOP 1 email, prefix FROM dbo.users WHERE (email = ? OR prefix = ?) "
-            "AND user_id <> ISNULL(?, -1)", email, prefix, uid).fetchone()
+            "SELECT TOP 1 email, prefix, username FROM dbo.users "
+            "WHERE (email = ? OR prefix = ? OR (username IS NOT NULL AND username = ?)) "
+            "AND user_id <> ISNULL(?, -1)", email, prefix, username or "", uid).fetchone()
         if clash:
-            what = "email" if clash[0] == email else "folder prefix"
+            what = ("email" if clash[0] == email else
+                    "folder prefix" if clash[1] == prefix else "username")
             raise ValueError(f"Another user already has that {what}.")
-        active = 1 if data.get("is_active", True) in (True, 1, "1", "true", "on") else 0
-        vals = [email, name, _s("firstname", 100) or None, _s("mobile", 50) or None,
-                _s("tel", 50) or None, prefix, role, active]
+        vals: list[Any] = [email, name, _s("firstname", 100) or None, _s("mobile", 50) or None,
+                           _s("tel", 50) or None, prefix, role, _b("is_active", True), username,
+                           _b("is_approved", True)]
+        pw_set = ", password_hash = ?" if password is not None else ""
+        pw_vals = [hash_password(str(password))] if password is not None else []
         if uid is None:
             cur.execute(
                 "INSERT INTO dbo.users (email, name, firstname, mobile, tel, prefix, role, "
-                "is_active) OUTPUT INSERTED.user_id VALUES (?, ?, ?, ?, ?, ?, ?, ?)", *vals)
+                "is_active, username, is_approved, password_hash) OUTPUT INSERTED.user_id "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *vals, *(pw_vals or [None]))
             uid = int(cur.fetchone()[0])
         else:
             cur.execute(
                 "UPDATE dbo.users SET email = ?, name = ?, firstname = ?, mobile = ?, tel = ?, "
-                "prefix = ?, role = ?, is_active = ? WHERE user_id = ?", *vals, uid)
+                f"prefix = ?, role = ?, is_active = ?, username = ?, is_approved = ?{pw_set} "
+                "WHERE user_id = ?", *vals, *pw_vals, uid)
             if cur.rowcount == 0:
                 raise ValueError("User not found.")
         self.conn.commit()

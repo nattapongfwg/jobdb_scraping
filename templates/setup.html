@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First-time setup — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar"><div class="brand"><span class="logo"></span> Recruitment</div></div>
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="/setup">
+    <h1 class="page-title">Create the <span class="accent">Admin</span> account</h1>
+    <p class="page-sub" style="margin-top:0">First-time setup. This account manages users, templates and scraping;
+      HR colleagues register themselves afterwards and you approve them.</p>
+    {% if error %}<p class="auth-error">{{ error }}</p>{% endif %}
+    {% include "_account_fields.html" %}
+    <button class="btn" type="submit">Create Admin &amp; sign in</button>
+  </form>
+</div>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{# Shared fields for /register and /setup. `form` holds the values to re-show. #}
+<div class="auth-grid">
+  <label>Full name (email signature)
+    <input name="name" value="{{ form.name or '' }}" required placeholder="Nattapong Yuwasirinun (นะ)"></label>
+  <label>First name
+    <input name="firstname" value="{{ form.firstname or '' }}" placeholder="Nattapong"></label>
+</div>
+<label>Work email
+  <input type="email" name="email" value="{{ form.email or '' }}" required placeholder="name@freewillsolutions.com"></label>
+<div class="auth-grid">
+  <label>Username
+    <input name="username" value="{{ form.username or '' }}" required autocomplete="username"
+           pattern="[A-Za-z0-9._-]{3,50}" title="3-50 letters, digits, dots, dashes or underscores"></label>
+  <label>Folder prefix <span class="muted">(mail folders, e.g. Na)</span>
+    <input name="prefix" value="{{ form.prefix or '' }}" required maxlength="20" placeholder="Na"></label>
+</div>
+<div class="auth-grid">
+  <label>Password <span class="muted">(8+ characters)</span>
+    <input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+  <label>Confirm password
+    <input type="password" name="confirm" required minlength="8" autocomplete="new-password"></label>
+</div>
+<div class="auth-grid">
+  <label>Mobile
+    <input name="mobile" value="{{ form.mobile or '' }}" placeholder="0xx-xxx-xxxx"></label>
+  <label>Tel
+    <input name="tel" value="{{ form.tel or '' }}" placeholder="0-xxxx-xxxx"></label>
+</div>

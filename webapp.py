@@ -12,19 +12,23 @@ import os
 import subprocess
 import sys
 import threading
+import secrets
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, abort, jsonify, render_template, request, send_file
+from functools import wraps
+
+from flask import (Flask, abort, g, jsonify, redirect, render_template, request,
+                   send_file, session, url_for)
 
 from config import load_config
 from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
-                ensure_schema)
+                ensure_schema, verify_password)
 from email_kit import signature
 from email_kit.templates import (configure_store, delete_template, get_template,
-                                 load_settings, load_templates, render, render_group,
-                                 render_interview, save_settings, save_template)
+                                 load_templates, render, render_group, render_interview,
+                                 save_template)
 import shortlist
 import evaluation
 import offer
@@ -38,6 +42,25 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 app = Flask(__name__)
 cfg = load_config()
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _secret_key() -> str:
+    """Signs the session cookie. SECRET_KEY in .env wins; otherwise a random key is
+    generated once and kept in .secret_key (gitignored) so sign-ins survive restarts."""
+    env = os.getenv("SECRET_KEY", "").strip()
+    if env:
+        return env
+    path = PROJECT_ROOT / ".secret_key"
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    key = secrets.token_hex(32)
+    path.write_text(key, encoding="utf-8")
+    return key
+
+
+app.secret_key = _secret_key()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  PERMANENT_SESSION_LIFETIME=timedelta(days=7))
 
 # Pipeline stages (key + label, in order) made available to every template.
 STAGE_LIST = [{"key": k, "label": STAGE_LABELS[k]} for k in STAGES]
@@ -171,33 +194,20 @@ class ScrapeManager:
 scraper_mgr = ScrapeManager()
 
 
-def _user_prefix() -> str:
-    """The teammate's folder prefix configured on the Config Email page (e.g. 'Na').
-    Used to file sent exams / drafts into per-teammate mail folders and to suffix the
-    Email_Reply_Exam folders. '' when not set yet."""
-    return str(load_settings().get("user_prefix") or "").strip()
-
-
-_USER_CACHE: dict = {"prefix": None, "user": None, "at": 0.0}
-
-
 def current_user() -> dict | None:
-    """The recruiter using this board, as a dbo.users row (or None when unknown).
-    Until the Microsoft 365 login (Phase 3) it is the ACTIVE user whose folder prefix
-    equals this machine's user_prefix setting. Cached for a few seconds so every
-    request doesn't open a DB connection just to find out who is here."""
-    pfx = _user_prefix()
-    now = time.monotonic()
-    if _USER_CACHE["prefix"] == pfx and now - _USER_CACHE["at"] < 10:
-        return _USER_CACHE["user"]
+    """The signed-in user (a dbo.users row) for this request, or None. Read once per
+    request from the session cookie; an account that was disabled or un-approved
+    since signing in counts as signed out."""
+    if "user" in g:
+        return g.user
     user = None
-    if pfx:
-        try:
-            with Database(cfg) as db:
-                user = db.get_user_by_prefix(pfx)
-        except Exception as exc:  # noqa: BLE001 — identity is best-effort, never block a page
-            logging.warning("current_user lookup failed: %s", exc)
-    _USER_CACHE.update(prefix=pfx, user=user, at=now)
+    uid = session.get("uid")
+    if uid:
+        with Database(cfg) as db:
+            user = db.get_user_by_id(uid)
+        if user and not (user["is_active"] and user["is_approved"]):
+            user = None
+    g.user = user
     return user
 
 
@@ -206,11 +216,169 @@ def _current_email() -> str | None:
     return u["email"] if u else None
 
 
+def _user_prefix() -> str:
+    """The signed-in user's folder prefix (e.g. 'Na'): files their sent exams /
+    drafts into <prefix>_Sent_Exam and <prefix>_Drafts and suffixes their
+    Email_Reply_Exam folders. '' when nobody is signed in."""
+    u = current_user()
+    return str(u.get("prefix") or "").strip() if u else ""
+
+
+def _is_admin() -> bool:
+    u = current_user()
+    return bool(u and u.get("role") == "admin")
+
+
+# Pages/APIs reachable without signing in.
+_PUBLIC_PATHS = {"/login", "/register", "/setup", "/logout"}
+
+
 @app.before_request
-def _bind_recruiter() -> None:
-    """Sign every email rendered in this request as the current user."""
-    if not request.path.startswith("/static/"):
-        signature.set_active_recruiter(current_user())
+def _require_login():
+    """Every page and API needs a signed-in, approved user. Pages bounce to /login
+    (coming back to the same URL afterwards); APIs answer 401 JSON. The signed-in
+    user also becomes the active recruiter, so emails sign as them."""
+    p = request.path
+    if p.startswith("/static/") or p in _PUBLIC_PATHS:
+        return None
+    user = current_user()
+    if user is None:
+        if p.startswith("/api/"):
+            return jsonify({"ok": False, "error": "Please sign in.", "login": True}), 401
+        nxt = p if request.method == "GET" else "/"
+        return redirect(url_for("login_page", next=nxt))
+    signature.set_active_recruiter(user)
+    return None
+
+
+def admin_required(view):
+    """Route guard: only the Admin role may call (scraping, mailbox sign-in,
+    template editing, user management)."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not _is_admin():
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Admin only."}), 403
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapper
+
+
+@app.context_processor
+def _inject_identity():
+    """`me` (the signed-in user) and, for Admins, the count of registrations
+    waiting for approval — used by the top bar on every page."""
+    me = current_user()
+    pending = 0
+    if me and me.get("role") == "admin":
+        with Database(cfg) as db:
+            pending = db.count_pending_users()
+    return {"me": me, "pending_users": pending}
+
+
+def _safe_next(target: str | None) -> str:
+    """Only allow same-site relative redirects after sign-in."""
+    t = (target or "").strip()
+    return t if t.startswith("/") and not t.startswith("//") else "/"
+
+
+_ACCOUNT_FIELDS = ("name", "firstname", "email", "username", "prefix", "mobile", "tel")
+
+
+def _account_form() -> dict:
+    """The account fields posted by /register or /setup (never raises, so the
+    page can re-show what was typed after a validation error)."""
+    form = {k: request.form.get(k, "").strip() for k in _ACCOUNT_FIELDS}
+    form["password"] = request.form.get("password", "")
+    return form
+
+
+def _check_passwords(form: dict) -> None:
+    if form["password"] != request.form.get("confirm", ""):
+        raise ValueError("The two passwords do not match.")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    """Username + password sign-in. Until the first Admin account exists the
+    board sends everyone to /setup instead."""
+    with Database(cfg) as db:
+        if not db.admin_has_password():
+            return redirect(url_for("setup_page"))
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            user = db.get_user_by_username(username)
+            error = None
+            if not user or not verify_password(request.form.get("password", ""),
+                                               user.get("_password_hash")):
+                error = "Invalid username or password."
+            elif not user["is_active"]:
+                error = "This account is disabled. Please ask an Admin."
+            elif not user["is_approved"]:
+                error = "Your account is waiting for an Admin to approve it."
+            if error:
+                return render_template("login.html", error=error, username=username,
+                                       next=request.form.get("next", "")), 401
+            session.clear()
+            session["uid"] = user["user_id"]
+            session.permanent = True
+            db.touch_login(user["user_id"])
+            return redirect(_safe_next(request.form.get("next")))
+    if current_user():
+        return redirect("/")
+    return render_template("login.html", next=request.args.get("next", ""),
+                           notice=request.args.get("notice"))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register_page():
+    """HR self-registration: creates an HR account that an Admin must approve
+    before it can sign in."""
+    form: dict = {}
+    if request.method == "POST":
+        form = _account_form()
+        try:
+            _check_passwords(form)
+            with Database(cfg) as db:
+                db.register_user(form)
+        except ValueError as exc:
+            return render_template("register.html", error=str(exc), form=form), 400
+        return redirect(url_for("login_page",
+                                notice="Registered. An Admin will approve your account; "
+                                       "you can sign in once that is done."))
+    return render_template("register.html", form=form)
+
+
+@app.route("/setup", methods=["GET", "POST"])
+def setup_page():
+    """First run only: turn the seeded Admin row into a real account (username +
+    password) and sign in. Disabled as soon as an Admin has a password."""
+    with Database(cfg) as db:
+        if db.admin_has_password():
+            return redirect(url_for("login_page"))
+        seed = db.first_admin_without_password() or {}
+        if request.method == "POST":
+            form = _account_form()
+            try:
+                _check_passwords(form)
+                if not form["username"] or not form["password"]:
+                    raise ValueError("Username and password are required.")
+                user = db.save_user({**seed, **form, "role": "admin", "is_active": True,
+                                     "is_approved": True})
+            except ValueError as exc:
+                return render_template("setup.html", error=str(exc), form=form), 400
+            session.clear()
+            session["uid"] = user["user_id"]
+            session.permanent = True
+            db.touch_login(user["user_id"])
+            return redirect("/")
+    return render_template("setup.html", form=seed)
 
 
 def _sender_prefix(info: dict) -> str:
@@ -345,6 +513,7 @@ def api_jobs():
 
 # -- SEEK scraping (background subprocess) ---------------------------------
 @app.post("/api/scrape/fetch-jobs")
+@admin_required
 def api_scrape_fetch_jobs():
     """Start fetching the active job ads from SEEK (logs in if needed)."""
     started = scraper_mgr.fetch_jobs()
@@ -352,6 +521,7 @@ def api_scrape_fetch_jobs():
 
 
 @app.post("/api/scrape/download")
+@admin_required
 def api_scrape_download():
     """Start downloading candidates + resumes for one selected job id."""
     data = request.get_json(force=True)
@@ -712,6 +882,7 @@ def api_email_template_fields():
 
 
 @app.post("/api/email-templates")
+@admin_required
 def api_email_template_save():
     data = request.get_json(force=True)
     saved = save_template(data)
@@ -719,6 +890,7 @@ def api_email_template_save():
 
 
 @app.post("/api/email-templates/delete")
+@admin_required
 def api_email_template_delete():
     data = request.get_json(force=True)
     templates = delete_template(str(data.get("id", "")))
@@ -732,6 +904,7 @@ def api_email_login_status():
 
 
 @app.post("/api/email/login-start")
+@admin_required
 def api_email_login_start():
     """Begin the device-code sign-in for the shared Recruit mailbox."""
     email_auth.start()
@@ -740,23 +913,11 @@ def api_email_login_start():
 
 @app.get("/api/email/settings")
 def api_email_settings_get():
-    """Per-machine Config-Email settings: the teammate folder prefix (= which user
-    this PC acts as), plus the users to pick from and the resolved current user."""
+    """The signed-in user's folder prefix and the users list (kept for callers of
+    the old per-machine settings endpoint)."""
     with Database(cfg) as db:
         users = db.list_users()
     return jsonify({"user_prefix": _user_prefix(), "users": users, "current": current_user()})
-
-
-@app.post("/api/email/settings")
-def api_email_settings_save():
-    """Save the teammate folder prefix (e.g. 'Na') — i.e. pick which user this PC
-    acts as. Stored per-machine."""
-    data = request.get_json(force=True)
-    prefix = str(data.get("user_prefix", "") or "").strip()
-    saved = save_settings({"user_prefix": prefix})
-    _USER_CACHE["at"] = 0.0          # re-resolve the current user on the next request
-    return jsonify({"ok": True, "user_prefix": saved.get("user_prefix", ""),
-                    "current": current_user()})
 
 
 @app.get("/api/users")
@@ -767,17 +928,29 @@ def api_users_list():
 
 
 @app.post("/api/users")
+@admin_required
 def api_users_save():
-    """Add or edit one recruiter. Body: {user_id?, email, name, firstname?, mobile?,
-    tel?, prefix, role, is_active}. Deactivate instead of deleting so history and
-    owner badges keep resolving to a name."""
+    """Admin: add or edit one user. Body: {user_id?, email, name, firstname?, mobile?,
+    tel?, prefix, role, is_active, username?, password?, is_approved?}. A password
+    here sets/resets it; blank keeps it. Deactivate instead of deleting so history
+    and owner badges keep resolving to a name."""
     data = request.get_json(force=True) or {}
     try:
         with Database(cfg) as db:
             user = db.save_user(data)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    _USER_CACHE["at"] = 0.0
+    return jsonify({"ok": True, "user": user})
+
+
+@app.post("/api/users/<int:uid>/approve")
+@admin_required
+def api_users_approve(uid: int):
+    """Approve a self-registered HR account so it can sign in."""
+    with Database(cfg) as db:
+        user = db.approve_user(uid, _current_email())
+    if not user:
+        return jsonify({"ok": False, "error": "User not found."}), 404
     return jsonify({"ok": True, "user": user})
 
 
@@ -1328,7 +1501,7 @@ if __name__ == "__main__":
         if _db.seed_default_user(email=signature.RECRUITER_EMAIL, name=signature.RECRUITER_NAME,
                                  firstname=signature.RECRUITER_FIRSTNAME,
                                  mobile=signature.RECRUITER_MOBILE, tel=signature.RECRUITER_TEL,
-                                 prefix=_user_prefix() or "Na"):
+                                 prefix="Na"):
             logging.info("Seeded the first board user (admin).")
     # PORT lets a dev copy of the board run beside the live one (default 2757).
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", "2757")), debug=False)

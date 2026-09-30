@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar"><div class="brand"><span class="logo"></span> Recruitment</div></div>
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="/login" autocomplete="on">
+    <h1 class="page-title">Sign <span class="accent">in</span></h1>
+    {% if notice %}<p class="auth-notice">{{ notice }}</p>{% endif %}
+    {% if error %}<p class="auth-error">{{ error }}</p>{% endif %}
+    <label>Username
+      <input name="username" value="{{ username or '' }}" required autofocus autocomplete="username"></label>
+    <label>Password
+      <input type="password" name="password" required autocomplete="current-password"></label>
+    <input type="hidden" name="next" value="{{ next or '' }}">
+    <button class="btn" type="submit">Sign in</button>
+    <p class="muted auth-foot">New HR colleague? <a href="/register">Register here</a> — an Admin approves
+      your account before you can sign in.</p>
+  </form>
+</div>
+</body>
+</html>
