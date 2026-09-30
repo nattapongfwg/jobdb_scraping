@@ -1179,13 +1179,21 @@ def api_candidate_interview_event():
     return jsonify({"ok": True})
 
 
+@app.get("/api/evaluation/templates")
+def api_evaluation_templates():
+    """Team evaluation forms under files_evaluation/ for the popup's template dropdown."""
+    return jsonify({"templates": evaluation.list_templates()})
+
+
 @app.post("/api/candidates/evaluation")
 def api_candidate_evaluation():
     """Move a candidate to 'Evaluation', generate the interview-evaluation Excel form
     (filled from the popup), create an Outlook DRAFT email (form attached, manual PDF
     linked), and SAVE the form fields on the candidate record. Body: {application_id,
     position, role, company, department, section, interview_date, interviewer,
-    recruiter}. The stage advances only if the form + draft are produced successfully."""
+    recruiter, template?}. `template` picks a team form under files_evaluation/
+    (blank = the default template). The stage advances only if the form + draft are
+    produced successfully."""
     data = request.get_json(force=True)
     aid = str(data.get("application_id", "")).strip()
     if not aid:
@@ -1214,7 +1222,12 @@ def api_candidate_evaluation():
         out_name = evaluation.eval_filename(section, name_edit)
         out_path = evaluation.EVAL_DIR / out_name
         try:
-            evaluation.build_eval_xlsx(values, out_path)
+            # `template` = a file under files_evaluation/ picked in the popup; blank = default.
+            template_path = evaluation.resolve_template(_g("template"))
+        except FileNotFoundError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        try:
+            evaluation.build_eval_xlsx(values, out_path, template_path=template_path)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"ok": False, "error": f"Could not build the Excel form: {exc}"}), 500
 

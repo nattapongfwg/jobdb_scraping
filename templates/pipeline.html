@@ -114,6 +114,8 @@
         <input type="text" id="evName" readonly></label>
       <label style="grid-column:1/3">ใบขอกำลังคน (Request) — auto-fills Position / Company / Department / Section
         <select id="evRequest"></select></label>
+      <label style="grid-column:1/3">Evaluation Template — the Excel form to fill (from <code>files_evaluation</code>)
+        <select id="evTemplate"></select></label>
       <label>ตำแหน่งที่สมัคร (Position)
         <select id="evPosition"></select></label>
       <label>บทบาท (Role)
@@ -557,6 +559,23 @@ function applyRequest(){
   fillSelect($("#evSection"), EVAL_OPTS.sections, req.section || "");
   $("#evSection").dispatchEvent(new Event("change"));   // refresh the filename hint
 }
+// Team evaluation forms under files_evaluation/ (fetched once per page load).
+let EVAL_TEMPLATES = null;
+async function fillTemplateSelect(sel){
+  if(EVAL_TEMPLATES === null){
+    try { EVAL_TEMPLATES = (await (await fetch("/api/evaluation/templates")).json()).templates || []; }
+    catch(e){ EVAL_TEMPLATES = []; }
+  }
+  const prev = sel.value;
+  let html = `<option value="">— Default form (Evaluation_Template.xlsx) —</option>`;
+  const groups = new Map();
+  EVAL_TEMPLATES.forEach(t => { const k = t.folder || "(top folder)"; if(!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  groups.forEach((list, folder) => {
+    html += `<optgroup label="${esc(folder)}">` + list.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("") + `</optgroup>`;
+  });
+  sel.innerHTML = html;
+  if(prev && EVAL_TEMPLATES.some(t => t.id === prev)) sel.value = prev;   // keep the last pick within this session
+}
 async function openEvalModal(id){
   const c = candidates.find(x => x.application_id===id); if(!c) return;
   pendingEval = id;
@@ -573,6 +592,7 @@ async function openEvalModal(id){
   fillSelect($("#evSection"), EVAL_OPTS.sections, c.section || "");
   await populateRequestDropdown();                           // fill the Request picker…
   if(c.request_id != null) $("#evRequest").value = String(c.request_id);   // …map to the candidate's request
+  await fillTemplateSelect($("#evTemplate"));                // …and the team-form picker
   $("#evRequest").onchange = applyRequest;
   $("#evRole").value = c.role || c.job_title || JOB_TITLE || "";   // บทบาท: stored role, else job title
   $("#evDate").value = c.interview_date || new Date().toISOString().slice(0,10);
@@ -596,6 +616,7 @@ async function confirmEval(){
   const payload = {
     application_id: id,
     request_id: $("#evRequest").value || null,
+    template: $("#evTemplate").value,
     position: $("#evPosition").value, role: $("#evRole").value.trim(),
     company: $("#evCompany").value, department: $("#evDept").value,
     section: $("#evSection").value, interview_date: $("#evDate").value,

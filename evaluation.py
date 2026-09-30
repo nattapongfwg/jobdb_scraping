@@ -6,6 +6,13 @@ drop the images/drawings on save, so instead we surgically rewrite ONLY the head
 cells inside xl/worksheets/sheet1.xml and copy every other zip entry byte-for-byte —
 preserving the whole form intact.
 
+Templates: the default is Evaluation_Template.xlsx in the project root. HR can instead
+pick one of the per-team forms under files_evaluation/ (any depth, .xlsx) in the
+Evaluation popup. Every team form uses the same header layout on its form sheet, but
+that sheet is not always sheet2.xml (some files call it "SA" or "Dev" as sheet3), so
+find_form_sheet() locates it by its labels (ชื่อ-นามสกุล at A2, บทบาท at M2) instead of
+assuming a fixed sheet.
+
 Header value cells (the merged cell to the right of each Thai label, row 2-4):
     B2  ชื่อ-นามสกุล              (prefix + full_name_edit)
     I2  ตำแหน่งที่สมัคร (Position)  (dropdown)
@@ -34,7 +41,10 @@ EVAL_DIR = PROJECT_ROOT / "Evaluation_Files"          # generated forms land her
 # then rerun `python make_eval_template.py`. Keep the 9 header cells (see CELL_MAP) in place.
 MASTER_PATH = PROJECT_ROOT / "Evaluate_Original.xlsx"      # untouched HR reference
 TEMPLATE_PATH = PROJECT_ROOT / "Evaluation_Template.xlsx"  # processed; what build fills
-SHEET_XML = "xl/worksheets/sheet2.xml"   # "Evaluate Interview form (Demo)" — the form HR uses
+SHEET_XML = "xl/worksheets/sheet2.xml"   # fallback when no sheet carries the header labels
+TEMPLATES_DIR = PROJECT_ROOT / "files_evaluation"           # per-team forms HR can pick instead
+# Labels that identify the form sheet (the "Demo"-layout header: name at A2, role at M2).
+FORM_MARKERS = {"A2": "ชื่อ-นามสกุล", "M2": "บทบาท"}
 
 # Header label -> the value cell that holds it.
 CELL_MAP = {
@@ -167,22 +177,105 @@ def _set_cell(sheet_xml: str, cell: str, value: str) -> str:
     return new
 
 
+def _clear_cell(sheet_xml: str, cell: str) -> str:
+    """Empty one cell's value while preserving its style, so a team template's example
+    candidate does not leak into a field HR left blank in the popup."""
+    pat = re.compile(rf'<c r="{cell}"((?:\s+[\w:]+="[^"]*")*)\s*(?:/>|>.*?</c>)', re.S)
+
+    def repl(m):
+        sm = re.search(r'\s+s="\d+"', m.group(1))
+        return f'<c r="{cell}"{sm.group(0) if sm else ""}/>'
+    return pat.sub(repl, sheet_xml, count=1)
+
+
+def _cell_text(sheet_xml: str, cell: str, shared: list[str]) -> str:
+    """The text in one cell (shared-string, inline-string or plain value), '' if none."""
+    m = re.search(rf'<c r="{cell}"([^>]*?)(?:/>|>(.*?)</c>)', sheet_xml, re.S)
+    if not m or not m.group(2):
+        return ""
+    attrs, inner = m.group(1), m.group(2)
+    v = re.search(r"<v>(.*?)</v>", inner, re.S)
+    if 't="s"' in attrs and v and v.group(1).isdigit() and int(v.group(1)) < len(shared):
+        return shared[int(v.group(1))]
+    t = re.search(r"<t[^>]*>(.*?)</t>", inner, re.S)
+    return (t.group(1) if t else (v.group(1) if v else "")).strip()
+
+
+def find_form_sheet(zin: zipfile.ZipFile) -> str:
+    """The zip path of the sheet that carries the evaluation header (first VISIBLE
+    sheet in workbook order whose A2 says ชื่อ-นามสกุล and M2 says บทบาท). The team
+    forms keep the same layout but name/number that sheet differently. Falls back to
+    SHEET_XML when no sheet matches."""
+    names = set(zin.namelist())
+    shared: list[str] = []
+    if "xl/sharedStrings.xml" in names:
+        for si in re.findall(r"<si>(.*?)</si>", zin.read("xl/sharedStrings.xml").decode("utf-8"), re.S):
+            shared.append("".join(re.findall(r"<t[^>]*>(.*?)</t>", si, re.S)))
+    rels_xml = zin.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+    rels: dict[str, str] = {}
+    for rel in re.findall(r"<Relationship\b[^>]*>", rels_xml):
+        rid, target = re.search(r'Id="([^"]+)"', rel), re.search(r'Target="([^"]+)"', rel)
+        if rid and target:
+            t = target.group(1).lstrip("/")
+            rels[rid.group(1)] = t if t.startswith("xl/") else "xl/" + t
+    for tag in re.findall(r"<sheet\b[^>]*/?>", zin.read("xl/workbook.xml").decode("utf-8")):
+        if 'state="hidden"' in tag or 'state="veryHidden"' in tag:
+            continue
+        rid = re.search(r'r:id="([^"]+)"', tag)
+        path = rels.get(rid.group(1)) if rid else None
+        if not path or path not in names:
+            continue
+        xml = zin.read(path).decode("utf-8")
+        if all(_cell_text(xml, cell, shared).startswith(label) for cell, label in FORM_MARKERS.items()):
+            return path
+    return SHEET_XML
+
+
+def list_templates() -> list[dict]:
+    """The per-team forms under files_evaluation/ for the popup's Evaluation Template
+    dropdown: [{id: 'AiP_Java/Interview Evaluate Form for.xlsx', folder, name}], sorted by
+    folder then name. Excel lock files (~$…) are skipped. [] when the folder is absent."""
+    if not TEMPLATES_DIR.is_dir():
+        return []
+    out = []
+    for p in sorted(TEMPLATES_DIR.rglob("*.xlsx")):
+        if p.name.startswith("~$"):
+            continue
+        rel = p.relative_to(TEMPLATES_DIR)
+        out.append({"id": rel.as_posix(), "folder": rel.parent.as_posix() if rel.parent != Path(".") else "",
+                    "name": p.name})
+    return out
+
+
+def resolve_template(template_id: str | None) -> Path:
+    """Map a dropdown value back to a file: '' → the default template; otherwise a
+    path relative to files_evaluation/ that must exist inside it (no '..' escapes)."""
+    if not (template_id or "").strip():
+        return TEMPLATE_PATH
+    base = TEMPLATES_DIR.resolve()
+    p = (base / template_id).resolve()
+    if base not in p.parents or p.suffix.lower() != ".xlsx" or not p.is_file():
+        raise FileNotFoundError(f"Evaluation template not found: {template_id}")
+    return p
+
+
 def build_eval_xlsx(values: dict, out_path: Path, template_path: Path = TEMPLATE_PATH) -> Path:
     """Write a filled copy of the evaluation form. `values` keys match CELL_MAP.
-    Only the 9 header cells on the form sheet are rewritten; every other part (images,
-    drawings, validations, other sheets, the already-applied layout from
-    make_eval_template.py) is copied verbatim. Returns out_path."""
+    Only the 9 header cells on the form sheet are rewritten (blank values CLEAR the
+    cell); every other part (images, drawings, validations, other sheets, the layout
+    from make_eval_template.py) is copied verbatim. Works for the default template and
+    for any team form under files_evaluation/. Returns out_path."""
     out_path = Path(out_path)
     with zipfile.ZipFile(template_path, "r") as zin:
-        sheet = zin.read(SHEET_XML).decode("utf-8")
+        sheet_xml = find_form_sheet(zin)
+        sheet = zin.read(sheet_xml).decode("utf-8")
         for key, cell in CELL_MAP.items():
             v = values.get(key, "")
-            if v not in (None, ""):
-                sheet = _set_cell(sheet, cell, str(v))
+            sheet = _set_cell(sheet, cell, str(v)) if v not in (None, "") else _clear_cell(sheet, cell)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
-                data = sheet.encode("utf-8") if item.filename == SHEET_XML else zin.read(item.filename)
+                data = sheet.encode("utf-8") if item.filename == sheet_xml else zin.read(item.filename)
                 zout.writestr(item, data)
     return out_path
 

@@ -18,6 +18,8 @@ resume/
 debug/
 *.log
 Evaluation_Files/
+# per-team interview evaluation forms (HR data, some files name candidates)
+files_evaluation/
 Report_Files/
 
 # Service wrapper runtime files (service.ps1)

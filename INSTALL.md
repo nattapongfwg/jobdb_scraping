@@ -158,6 +158,7 @@ These are excluded from the repo; copy them from the old computer if you want th
 | `email_kit/email_template.json` | Your customised email templates | Copy it (otherwise sensible defaults regenerate automatically) |
 | `resume/`, `Email_Reply_Exam/`, `Shortlists/` | Already-scraped candidate files | Copy if you want history; otherwise re-scrape |
 | SQL Server data | The candidate database itself | Re-scrape on the new machine, **or** back up / restore the DB in SSMS |
+| `files_evaluation/` | Per-team interview evaluation forms (HR data; some name candidates) | Copy the folder; the Evaluation popup lists its `.xlsx` files as templates. Without it only the default form is offered |
 
 The Excel evaluation templates (`Evaluate_Original.xlsx`, `Evaluation_Template.xlsx`)
 **are** in the repo, so they arrive with the clone automatically.

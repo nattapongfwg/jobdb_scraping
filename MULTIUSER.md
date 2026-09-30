@@ -152,6 +152,16 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `signature.py` — `set_active_recruiter(user)` (ContextVar); `recruiter_*()` read the active user → `.env` `RECRUITER_*` → defaults.
 - `templates.py` — `configure_store(load, save)`; the web app plugs the DB in; the JSON file is migrated on first load and then only holds settings.
 
+### Evaluation forms per team (`evaluation.py`, added 2026-09-30)
+- The Evaluation popup has an **Evaluation Template** dropdown listing every `.xlsx` under
+  `files_evaluation/` (grouped by team folder; gitignored, copy the folder by hand).
+  Blank = the default `Evaluation_Template.xlsx`.
+- `find_form_sheet()` locates the form sheet by its labels (A2 ชื่อ-นามสกุล, M2 บทบาท) because
+  some team files keep the form on sheet3 ("SA", "Dev"); the nine header cells are the same.
+- Blank popup fields now **clear** the cell, so a team file's example candidate never leaks.
+- `GET /api/evaluation/templates`; `POST /api/candidates/evaluation` takes `template`.
+- Test: `debug\eval_templates_test.py` (fills every form + the default).
+
 ### Templates / static
 - `login.html`, `register.html`, `setup.html`, `_account_fields.html`, `_who.html`.
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
