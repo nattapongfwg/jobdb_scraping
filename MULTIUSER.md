@@ -24,7 +24,8 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. HR **registers** a username; an **Admin approves** before they can sign in. |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
-| Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. |
+| Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Only Admin edits them; HR is view-only.** |
+| Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. |
 | Hosting (Phase 4) | **Parked.** The user does not want to discuss servers yet. Nothing in Phase 4 has started. |
 
 ---
@@ -51,6 +52,8 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | `c2398bc` | Phase 2c — email templates stored in the database |
 | `a2bf0e3` | Phase 3 — local sign-in, Admin/HR roles, register → approve |
 | `a2b64e2` | Perf — removed the decorative animations (**also shipped to live as `c31963d`**) |
+| `fc319d8` | Email templates view-only for HR; requests record creator / last editor, catch stale saves |
+| `f20cdd2` | Status Tracking — 20/40/60 rows per page; Owner (name + folder prefix) as the first column |
 
 ---
 
@@ -89,9 +92,15 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
+| `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, HR view-only templates (19 checks) |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
+
+**Known stale tests (2026-09-30):** `phase2_users_test.py`, `phase2_owner_test.py` and
+`phase2_templates_test.py` fail since Phase 3 — they call the API without signing in
+(401 / no app context). The code they cover is fine; the scripts need a signed-in
+test client (see `request_audit_test.py`, which sets `session["uid"]`).
 
 JS syntax check after `render_pages.py` (from WSL, needs node):
 ```
@@ -108,6 +117,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `dbo.users` — `email, name, firstname, mobile, tel, prefix, role('admin'|'hr'), is_active, username, password_hash, is_approved, approved_by, approved_at, last_login_at`.
 - `dbo.stage_history` — `application_id, action, from_value, to_value, actor_email, at`. Actions: `move`, `exam_sent`, `exam_resent`, `exam_failed`, `owner`.
 - `dbo.email_templates` — one row per template (`template_id, doc JSON, sort_order, updated_by, updated_at`).
+- `dbo.requests.created_by / updated_by` (`users.email`), `updated_at`, `revision` (INT, +1 per save).
 
 ### `db.py`
 - `set_stage(aid, stage, date, exam_sent_by=None, actor=None)` — `UPDATE … WHERE stage = <what we read>`; returns `conflict=True` if someone moved the card first; claims the owner on the first move out of Pending; writes `stage_history`.
@@ -116,6 +126,10 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - Users: `list_users, get_user_by_id/username/prefix/email, save_user (validates, hashes password), register_user (pending HR), approve_user, touch_login, count_pending_users, admin_has_password, first_admin_without_password, seed_default_user`.
 - `hash_password / verify_password` — salted SHA-256.
 - `load_email_templates / save_email_templates` — the store behind `email_kit.templates`.
+- `insert_request(..., actor)` records the creator. `update_request(..., actor, revision)` records the
+  editor and only writes when `revision` still matches; otherwise returns `conflict=True` + the
+  current row. `list_requests / get_request` share `_REQUEST_SELECT`, which joins `users` for
+  `created_by_name / updated_by_name`.
 
 ### `webapp.py`
 - `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
@@ -123,6 +137,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/email-templates`, `/api/email-templates/delete`, `POST /api/users`, `POST /api/users/<id>/approve`.
 - Auth pages: `/setup`, `/login`, `/logout`, `/register`.
 - New APIs: `POST /api/candidates/owner`, `GET /api/candidates/history?application_id=`, `GET/POST /api/users`, `POST /api/users/<id>/approve`.
+- `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
+  `{"conflict": true, "error": "<name> saved this request at <time> …"}` when a teammate saved
+  first; `force: true` overwrites. `_request_json()` formats request rows for JSON/templates.
 - `_user_prefix()` = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
 - Context processor injects `me` and `pending_users` into every template; `templates/_who.html` renders the top-bar identity.
 - `PORT` env var chooses the listening port.
@@ -134,7 +151,14 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ### Templates / static
 - `login.html`, `register.html`, `setup.html`, `_account_fields.html`, `_who.html`.
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
-- `tracking.html` — Owner column. `email_templates.html` — users manager (Admin), read-only for HR. `index.html` — scrape panel hidden for HR.
+- `tracking.html` — **Owner first column** (name over 📁 folder prefix); **client-side paging**
+  (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
+- `email_templates.html` — users manager (Admin). For HR the editor sits in one
+  `<fieldset disabled class="et-readonly">`, Add variable / insert chips are hidden, and the
+  mailbox sign-in button is hidden (`CAN_SIGN_IN`).
+- `requests.html` — **Created by** / **Last edited** columns. `request.html` — the same on top of
+  the edit form, and an overwrite-or-reload confirm on a 409.
+- `index.html` — scrape panel hidden for HR.
 - `styles.css` — animations/blur removed; owner, history, auth and top-bar styles added.
 
 ---
@@ -174,4 +198,5 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 
 ### Git workflow used here
 Short-lived branch → fast-forward merge into `master` → push → delete the branch.
-Commit messages end with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+Commit messages end with a `Co-Authored-By: Claude …` line (the current model, e.g.
+`Claude Opus 5.5 <noreply@anthropic.com>`).
