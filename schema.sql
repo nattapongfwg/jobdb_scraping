@@ -42,6 +42,27 @@ END;
 
 -- Hiring requests (submitted from the "Request" page on the Job Postings board).
 -- Standalone table: a manager records a request to open/replace a position.
+-- Recruiters who use the board (multi-user Phase 2). One row per teammate: the
+-- email signature fields, the mailbox folder prefix (<prefix>_Sent_Exam / _Drafts),
+-- and the role. Until the Microsoft 365 login lands, the machine's user_prefix
+-- setting picks which row is "me"; afterwards the login email does.
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'users')
+BEGIN
+    CREATE TABLE dbo.users (
+        user_id     INT            NOT NULL IDENTITY(1,1) PRIMARY KEY,
+        email       NVARCHAR(300)  NOT NULL UNIQUE,
+        name        NVARCHAR(200)  NOT NULL,          -- signature name, e.g. 'Nattapong Yuwasirinun (นะ)'
+        firstname   NVARCHAR(100)  NULL,              -- used in the Thai offer body
+        mobile      NVARCHAR(50)   NULL,
+        tel         NVARCHAR(50)   NULL,
+        prefix      NVARCHAR(20)   NOT NULL UNIQUE,   -- mail/reply folder prefix, e.g. 'Na'
+        role        NVARCHAR(20)   NOT NULL DEFAULT 'recruiter',   -- 'admin' | 'recruiter'
+        is_active   BIT            NOT NULL DEFAULT 1,
+        created_at  DATETIME2      NOT NULL
+            DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)
+    );
+END;
+
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'requests')
 BEGIN
     CREATE TABLE dbo.requests (

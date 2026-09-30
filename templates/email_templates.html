@@ -60,6 +60,13 @@
   .et-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;
                 border-top: 1px solid var(--line-soft); padding-top: 18px; }
   .et-actions .spacer { margin-right: auto; }
+  .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .users-table th, .users-table td { padding: 4px 6px; text-align: left; vertical-align: middle; }
+  .users-table th { font-weight: 600; opacity: .75; }
+  .users-table input, .users-table select { width: 100%; min-width: 64px; box-sizing: border-box; }
+  .users-table input[type=checkbox] { width: auto; min-width: 0; }
+  .users-table td.u-prefix input { max-width: 70px; }
+  .users-table td.u-act { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -92,19 +99,28 @@
       3. Sign in as the shared <b>Recruit</b> mailbox — <span class="muted">waiting for you to finish…</span>
     </div>
 
-    <!-- Per-teammate folder prefix: files this person's sent exams / drafts into
-         <prefix>_Sent_Exam and <prefix>_Drafts inside the shared mailbox. -->
+    <!-- Who is using this PC. Picks the dbo.users row this machine acts as: it signs
+         the emails and files sent exams / drafts into <prefix>_Sent_Exam and
+         <prefix>_Drafts inside the shared mailbox. The Microsoft 365 login will
+         replace the picker later. -->
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.12)">
       <label style="font-size:13px;display:block;margin-bottom:4px">
-        Your name (folder prefix)
-        <span class="muted" style="font-size:12px">— your sent exams &amp; drafts go into
+        I am
+        <span class="muted" style="font-size:12px">— signs your emails; sent exams &amp; drafts go into
           <b id="prefixPreview">Na</b>_Sent_Exam / <b id="prefixPreview2">Na</b>_Drafts</span>
       </label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="userPrefix" placeholder="e.g. Na" autocomplete="off"
-               style="max-width:200px" oninput="updatePrefixPreview()">
-        <button class="btn secondary" id="savePrefixBtn" onclick="saveUserPrefix()">Save</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="userPick" style="max-width:320px" onchange="saveUserPick()"></select>
+        <button class="btn secondary" onclick="toggleUsers()">👥 Manage users</button>
         <span id="prefixSaved" class="muted" style="font-size:12px"></span>
+      </div>
+      <div id="usersBox" style="display:none;margin-top:12px">
+        <table class="users-table">
+          <thead><tr><th>Name (signature)</th><th>First name</th><th>Email</th><th>Prefix</th>
+                     <th>Mobile</th><th>Tel</th><th>Role</th><th>Active</th><th></th></tr></thead>
+          <tbody id="usersRows"></tbody>
+        </table>
+        <button class="btn ghost" style="margin-top:6px" onclick="addUserRow()">➕ Add user</button>
       </div>
     </div>
   </div>
@@ -450,33 +466,79 @@ async function startEmailLogin(){
   finally { $("#emailSignInBtn").disabled = false; }
 }
 
-/* ---- per-teammate folder prefix ---- */
+/* ---- who am I on this PC + user management ---- */
+let cfgUsers = [], cfgPrefix = "";
+const escH = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function updatePrefixPreview(){
-  const v = ($("#userPrefix").value || "").trim() || "Na";
+  const v = cfgPrefix || "Na";
   $("#prefixPreview").textContent = v; $("#prefixPreview2").textContent = v;
 }
-async function loadUserPrefix(){
+function fillUserPick(){
+  const active = cfgUsers.filter(u => u.is_active);
+  const known = active.some(u => u.prefix === cfgPrefix);
+  $("#userPick").innerHTML = `<option value="">— not set —</option>` +
+    active.map(u => `<option value="${u.user_id}" ${u.prefix===cfgPrefix?"selected":""}>${escH(u.name)} (${escH(u.prefix)})</option>`).join("") +
+    (cfgPrefix && !known ? `<option value="" selected>prefix "${escH(cfgPrefix)}" — no matching user</option>` : "");
+  $("#prefixSaved").textContent = cfgPrefix
+    ? (known ? `Folders: ${cfgPrefix}_Sent_Exam, ${cfgPrefix}_Drafts` : "Add a user with this prefix, or pick one.")
+    : "Pick who you are so emails sign as you.";
+}
+async function loadUsers(){
   try {
     const r = await (await fetch("/api/email/settings")).json();
-    $("#userPrefix").value = r.user_prefix || "";
-    updatePrefixPreview();
-  } catch(e){}
+    cfgUsers = r.users || []; cfgPrefix = r.user_prefix || "";
+    fillUserPick(); updatePrefixPreview();
+    if($("#usersBox").style.display !== "none") renderUsersTable();
+  } catch(e){ toast("Could not load users: "+e, 6000); }
 }
-async function saveUserPrefix(){
-  const btn = $("#savePrefixBtn"); btn.disabled = true;
+async function saveUserPick(){
+  const u = cfgUsers.find(x => String(x.user_id) === $("#userPick").value);
   try {
     const r = await (await fetch("/api/email/settings", {method:"POST",
       headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({user_prefix: ($("#userPrefix").value||"").trim()})})).json();
-    if(r.ok){
-      $("#userPrefix").value = r.user_prefix || ""; updatePrefixPreview();
-      $("#prefixSaved").textContent = r.user_prefix
-        ? `Saved — folders: ${r.user_prefix}_Sent_Exam, ${r.user_prefix}_Drafts`
-        : "Cleared — using the mailbox's default folders.";
-      toast("Folder prefix saved.", 2500);
-    } else { toast("Could not save prefix.", 5000); }
-  } catch(e){ toast("Could not save prefix: "+e, 6000); }
-  finally { btn.disabled = false; }
+      body: JSON.stringify({user_prefix: u ? u.prefix : ""})})).json();
+    if(r.ok){ cfgPrefix = r.user_prefix || ""; fillUserPick(); updatePrefixPreview();
+      toast(u ? `You are now ${u.name}.` : "Cleared.", 2500); }
+    else toast("Could not save.", 5000);
+  } catch(e){ toast("Could not save: "+e, 6000); }
+}
+function toggleUsers(){
+  const box = $("#usersBox"); const show = box.style.display === "none";
+  box.style.display = show ? "" : "none";
+  if(show) renderUsersTable();
+}
+function userRowHtml(u, i){
+  const f = (k, ph, type="text") => `<input type="${type}" data-k="${k}" value="${escH(u[k])}" placeholder="${ph}">`;
+  return `<tr data-i="${i}">
+    <td>${f("name","Full name (signature)")}</td><td>${f("firstname","First name")}</td>
+    <td>${f("email","name@freewillsolutions.com","email")}</td><td class="u-prefix">${f("prefix","Na")}</td>
+    <td>${f("mobile","0xx-xxx-xxxx")}</td><td>${f("tel","0-xxxx-xxxx")}</td>
+    <td><select data-k="role"><option value="recruiter" ${u.role!=="admin"?"selected":""}>recruiter</option><option value="admin" ${u.role==="admin"?"selected":""}>admin</option></select></td>
+    <td style="text-align:center"><input type="checkbox" data-k="is_active" ${u.is_active!==false?"checked":""}></td>
+    <td class="u-act"><button class="btn tiny" onclick="saveUserRow(${i})">${u.user_id?"Save":"Add"}</button></td></tr>`;
+}
+function renderUsersTable(){
+  $("#usersRows").innerHTML = cfgUsers.map(userRowHtml).join("") ||
+    `<tr><td colspan="9" class="muted">No users yet — add the first one below.</td></tr>`;
+}
+function addUserRow(){
+  if(cfgUsers.some(u => !u.user_id)) return;   // one blank row at a time
+  cfgUsers.push({user_id:null, name:"", firstname:"", email:"", prefix:"", mobile:"", tel:"", role:"recruiter", is_active:true});
+  renderUsersTable();
+  const last = $("#usersRows").lastElementChild; if(last) last.querySelector("input").focus();
+}
+async function saveUserRow(i){
+  const tr = $("#usersRows").querySelector(`tr[data-i="${i}"]`); if(!tr) return;
+  const body = {user_id: cfgUsers[i].user_id};
+  tr.querySelectorAll("[data-k]").forEach(el => { body[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
+  const btn = tr.querySelector("button"); btn.disabled = true;
+  try {
+    const r = await (await fetch("/api/users", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)})).json();
+    if(!r.ok) throw new Error(r.error || "save failed");
+    toast(`Saved ${r.user.name}.`, 2500);
+    await loadUsers(); renderUsersTable();
+  } catch(e){ toast("Could not save user: "+e.message, 6000); btn.disabled = false; }
 }
 
 /* ---- init ---- */
@@ -492,7 +554,7 @@ async function init(){
     updatePreview();
   } catch(e){ toast("Could not load templates: "+e, 6000); }
   refreshEmailAuth();
-  loadUserPrefix();
+  loadUsers();
 }
 init();
 </script>

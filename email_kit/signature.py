@@ -1,10 +1,12 @@
 """Single source of truth for the recruiter's email signature / contact block.
 
 Every outgoing or draft email (exam/interview, shortlist, evaluation, offer) ends with
-the same signature. The recruiter's identity is PER-TEAMMATE: each teammate sets their
-own name/contacts in their `.env` (see CUSTOMIZE.md / .env.example) so emails sent from
-their machine sign as them, even though the Recruit mailbox is shared. The constants
-below are only fallback defaults used when an env var is unset.
+the same signature. The recruiter's identity is PER-TEAMMATE and resolved in this order:
+
+1. the ACTIVE recruiter — the dbo.users row for whoever is using the board, bound per
+   request by the web app with set_active_recruiter() (multi-user Phase 2);
+2. the RECRUITER_* vars in this machine's `.env` (the older per-PC setup);
+3. the fallback constants below.
 
 - signature_text()  -> plain-text form (used by the default exam template).
 - signature_html()  -> HTML form (shortlist / evaluation / offer drafts).
@@ -17,6 +19,7 @@ seed are edited in the web UI ("Config Email Template").
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 
 # --- Fallback defaults (overridden per-machine by the matching .env var) ------
 RECRUITER_NAME = "Nattapong Yuwasirinun (นะ)"
@@ -31,17 +34,41 @@ COMPANY_ADDRESS_2 = "Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120"
 # -----------------------------------------------------------------------------
 
 
+# The recruiter currently using the board (a dbo.users row as a dict), bound per
+# request by the web app. A ContextVar so concurrent requests from different
+# teammates never see each other's identity.
+_active: ContextVar[dict | None] = ContextVar("active_recruiter", default=None)
+
+
+def set_active_recruiter(user: dict | None) -> None:
+    """Bind the recruiter every signature in this request/thread renders as
+    (None → fall back to .env / defaults)."""
+    _active.set(user)
+
+
+def active_recruiter() -> dict | None:
+    return _active.get()
+
+
 def _env(name: str, default: str) -> str:
     """Per-machine override from .env (blank/unset → the module default)."""
     return (os.getenv(name, "") or "").strip() or default
 
 
-# Per-teammate recruiter identity (each reads its own RECRUITER_* env var).
-def recruiter_name() -> str:      return _env("RECRUITER_NAME", RECRUITER_NAME)
-def recruiter_firstname() -> str: return _env("RECRUITER_FIRSTNAME", RECRUITER_FIRSTNAME)
-def recruiter_mobile() -> str:    return _env("RECRUITER_MOBILE", RECRUITER_MOBILE)
-def recruiter_tel() -> str:       return _env("RECRUITER_TEL", RECRUITER_TEL)
-def recruiter_email() -> str:     return _env("RECRUITER_EMAIL", RECRUITER_EMAIL)
+def _val(key: str, env_name: str, default: str) -> str:
+    """Active recruiter's field → .env var → module default."""
+    user = _active.get()
+    if user and str(user.get(key) or "").strip():
+        return str(user[key]).strip()
+    return _env(env_name, default)
+
+
+# Per-teammate recruiter identity.
+def recruiter_name() -> str:      return _val("name", "RECRUITER_NAME", RECRUITER_NAME)
+def recruiter_firstname() -> str: return _val("firstname", "RECRUITER_FIRSTNAME", RECRUITER_FIRSTNAME)
+def recruiter_mobile() -> str:    return _val("mobile", "RECRUITER_MOBILE", RECRUITER_MOBILE)
+def recruiter_tel() -> str:       return _val("tel", "RECRUITER_TEL", RECRUITER_TEL)
+def recruiter_email() -> str:     return _val("email", "RECRUITER_EMAIL", RECRUITER_EMAIL)
 
 
 def signature_text() -> str:

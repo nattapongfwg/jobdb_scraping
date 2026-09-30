@@ -920,6 +920,85 @@ class Database:
             "WHERE application_id = ?", application_id)
         self.conn.commit()
 
+    # ---- users: the recruiters who use the board (multi-user Phase 2) ----------
+    _USER_COLS = "user_id, email, name, firstname, mobile, tel, prefix, role, is_active"
+    USER_ROLES = ("admin", "recruiter")
+
+    @staticmethod
+    def _row_to_user(r: Any) -> dict[str, Any]:
+        return {"user_id": r[0], "email": r[1], "name": r[2], "firstname": r[3],
+                "mobile": r[4], "tel": r[5], "prefix": r[6],
+                "role": r[7] or "recruiter", "is_active": bool(r[8])}
+
+    def list_users(self, active_only: bool = False) -> list[dict[str, Any]]:
+        cur = self.conn.cursor()
+        sql = f"SELECT {self._USER_COLS} FROM dbo.users"
+        if active_only:
+            sql += " WHERE is_active = 1"
+        cur.execute(sql + " ORDER BY is_active DESC, name")
+        return [self._row_to_user(r) for r in cur.fetchall()]
+
+    def get_user_by_prefix(self, prefix: str) -> dict[str, Any] | None:
+        """The ACTIVE user filing mail under `prefix` (how a machine identifies its
+        recruiter before the M365 login exists)."""
+        r = self.conn.cursor().execute(
+            f"SELECT {self._USER_COLS} FROM dbo.users WHERE prefix = ? AND is_active = 1",
+            (prefix or "").strip()).fetchone()
+        return self._row_to_user(r) if r else None
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        r = self.conn.cursor().execute(
+            f"SELECT {self._USER_COLS} FROM dbo.users WHERE email = ?",
+            (email or "").strip()).fetchone()
+        return self._row_to_user(r) if r else None
+
+    def save_user(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Insert (no user_id) or update one user. Raises ValueError with a message
+        fit for the UI when a required field is missing or email/prefix clash with
+        another user. Returns the saved row."""
+        def _s(k: str, n: int) -> str:
+            return str(data.get(k) or "").strip()[:n]
+        email, name, prefix = _s("email", 300), _s("name", 200), _s("prefix", 20)
+        if not email or not name or not prefix:
+            raise ValueError("Email, name and folder prefix are required.")
+        role = _s("role", 20) or "recruiter"
+        if role not in self.USER_ROLES:
+            raise ValueError(f"Role must be one of: {', '.join(self.USER_ROLES)}.")
+        uid = data.get("user_id")
+        uid = int(uid) if uid not in (None, "", 0, "0") else None
+        cur = self.conn.cursor()
+        clash = cur.execute(
+            "SELECT TOP 1 email, prefix FROM dbo.users WHERE (email = ? OR prefix = ?) "
+            "AND user_id <> ISNULL(?, -1)", email, prefix, uid).fetchone()
+        if clash:
+            what = "email" if clash[0] == email else "folder prefix"
+            raise ValueError(f"Another user already has that {what}.")
+        active = 1 if data.get("is_active", True) in (True, 1, "1", "true", "on") else 0
+        vals = [email, name, _s("firstname", 100) or None, _s("mobile", 50) or None,
+                _s("tel", 50) or None, prefix, role, active]
+        if uid is None:
+            cur.execute(
+                "INSERT INTO dbo.users (email, name, firstname, mobile, tel, prefix, role, "
+                "is_active) OUTPUT INSERTED.user_id VALUES (?, ?, ?, ?, ?, ?, ?, ?)", *vals)
+            uid = int(cur.fetchone()[0])
+        else:
+            cur.execute(
+                "UPDATE dbo.users SET email = ?, name = ?, firstname = ?, mobile = ?, tel = ?, "
+                "prefix = ?, role = ?, is_active = ? WHERE user_id = ?", *vals, uid)
+            if cur.rowcount == 0:
+                raise ValueError("User not found.")
+        self.conn.commit()
+        r = cur.execute(f"SELECT {self._USER_COLS} FROM dbo.users WHERE user_id = ?", uid).fetchone()
+        return self._row_to_user(r)
+
+    def seed_default_user(self, **fields: Any) -> dict[str, Any] | None:
+        """First run only: when the users table is empty, insert one admin from the
+        given fields (the signature defaults + this machine's prefix) so the board
+        has a recruiter to sign as. Returns the row inserted, or None if users exist."""
+        if self.conn.cursor().execute("SELECT TOP 1 1 FROM dbo.users").fetchone():
+            return None
+        return self.save_user({**fields, "role": "admin", "is_active": True})
+
     def set_job_active(self, job_id: str, is_active: bool) -> None:
         self.conn.cursor().execute(
             "UPDATE dbo.jobs SET is_active = ? WHERE job_id = ?",

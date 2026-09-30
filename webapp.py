@@ -21,6 +21,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 from config import load_config
 from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
                 ensure_schema)
+from email_kit import signature
 from email_kit.templates import (delete_template, get_template, load_settings,
                                  load_templates, render, render_group, render_interview,
                                  save_settings, save_template)
@@ -159,6 +160,41 @@ def _user_prefix() -> str:
     Used to file sent exams / drafts into per-teammate mail folders and to suffix the
     Email_Reply_Exam folders. '' when not set yet."""
     return str(load_settings().get("user_prefix") or "").strip()
+
+
+_USER_CACHE: dict = {"prefix": None, "user": None, "at": 0.0}
+
+
+def current_user() -> dict | None:
+    """The recruiter using this board, as a dbo.users row (or None when unknown).
+    Until the Microsoft 365 login (Phase 3) it is the ACTIVE user whose folder prefix
+    equals this machine's user_prefix setting. Cached for a few seconds so every
+    request doesn't open a DB connection just to find out who is here."""
+    pfx = _user_prefix()
+    now = time.monotonic()
+    if _USER_CACHE["prefix"] == pfx and now - _USER_CACHE["at"] < 10:
+        return _USER_CACHE["user"]
+    user = None
+    if pfx:
+        try:
+            with Database(cfg) as db:
+                user = db.get_user_by_prefix(pfx)
+        except Exception as exc:  # noqa: BLE001 — identity is best-effort, never block a page
+            logging.warning("current_user lookup failed: %s", exc)
+    _USER_CACHE.update(prefix=pfx, user=user, at=now)
+    return user
+
+
+def _current_email() -> str | None:
+    u = current_user()
+    return u["email"] if u else None
+
+
+@app.before_request
+def _bind_recruiter() -> None:
+    """Sign every email rendered in this request as the current user."""
+    if not request.path.startswith("/static/"):
+        signature.set_active_recruiter(current_user())
 
 
 def _sender_prefix(info: dict) -> str:
@@ -662,17 +698,45 @@ def api_email_login_start():
 
 @app.get("/api/email/settings")
 def api_email_settings_get():
-    """Per-machine Config-Email settings (currently the teammate folder prefix)."""
-    return jsonify({"user_prefix": _user_prefix()})
+    """Per-machine Config-Email settings: the teammate folder prefix (= which user
+    this PC acts as), plus the users to pick from and the resolved current user."""
+    with Database(cfg) as db:
+        users = db.list_users()
+    return jsonify({"user_prefix": _user_prefix(), "users": users, "current": current_user()})
 
 
 @app.post("/api/email/settings")
 def api_email_settings_save():
-    """Save the teammate folder prefix (e.g. 'Na'). Stored per-machine."""
+    """Save the teammate folder prefix (e.g. 'Na') — i.e. pick which user this PC
+    acts as. Stored per-machine."""
     data = request.get_json(force=True)
     prefix = str(data.get("user_prefix", "") or "").strip()
     saved = save_settings({"user_prefix": prefix})
-    return jsonify({"ok": True, "user_prefix": saved.get("user_prefix", "")})
+    _USER_CACHE["at"] = 0.0          # re-resolve the current user on the next request
+    return jsonify({"ok": True, "user_prefix": saved.get("user_prefix", ""),
+                    "current": current_user()})
+
+
+@app.get("/api/users")
+def api_users_list():
+    """Every recruiter on the board (inactive ones flagged, listed last)."""
+    with Database(cfg) as db:
+        return jsonify({"users": db.list_users(), "current": current_user()})
+
+
+@app.post("/api/users")
+def api_users_save():
+    """Add or edit one recruiter. Body: {user_id?, email, name, firstname?, mobile?,
+    tel?, prefix, role, is_active}. Deactivate instead of deleting so history and
+    owner badges keep resolving to a name."""
+    data = request.get_json(force=True) or {}
+    try:
+        with Database(cfg) as db:
+            user = db.save_user(data)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    _USER_CACHE["at"] = 0.0
+    return jsonify({"ok": True, "user": user})
 
 
 @app.get("/api/requests")
@@ -1215,5 +1279,13 @@ if __name__ == "__main__":
     # Ensure DB + schema (adds the new columns) before serving.
     ensure_database(cfg)
     ensure_schema(cfg)
+    # First run: give the board one admin user built from the signature defaults and
+    # this machine's folder prefix, so emails keep signing exactly as before.
+    with Database(cfg) as _db:
+        if _db.seed_default_user(email=signature.RECRUITER_EMAIL, name=signature.RECRUITER_NAME,
+                                 firstname=signature.RECRUITER_FIRSTNAME,
+                                 mobile=signature.RECRUITER_MOBILE, tel=signature.RECRUITER_TEL,
+                                 prefix=_user_prefix() or "Na"):
+            logging.info("Seeded the first board user (admin).")
     # PORT lets a dev copy of the board run beside the live one (default 2757).
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", "2757")), debug=False)
