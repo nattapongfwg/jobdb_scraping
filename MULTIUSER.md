@@ -26,6 +26,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Only Admin edits them; HR is view-only.** |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
+| Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
 | Hosting (Phase 4) | **Parked.** The user does not want to discuss servers yet. Nothing in Phase 4 has started. |
 
 ---
@@ -54,6 +55,10 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | `a2b64e2` | Perf — removed the decorative animations (**also shipped to live as `c31963d`**) |
 | `fc319d8` | Email templates view-only for HR; requests record creator / last editor, catch stale saves |
 | `f20cdd2` | Status Tracking — 20/40/60 rows per page; Owner (name + folder prefix) as the first column |
+| `59e73df` | Tracking — Owner column shows the first name (full name on hover) |
+| `d302363` | Requests — Doing / Completed tabs, ✔ Complete beside Edit, ↩ Reopen |
+| `3944e5f` | Evaluation popup — pick a per-team Excel form |
+| `bb3f9aa` | **Add Candidate** by hand on the Pending stage, with a PDF résumé (`source='manual'`) |
 
 ---
 
@@ -93,6 +98,8 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR view-only templates (27 checks) |
+| `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413 (26 checks) |
+| `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
@@ -101,6 +108,10 @@ They hit the **dev** database only and clean up after themselves.
 `phase2_templates_test.py` fail since Phase 3 — they call the API without signing in
 (401 / no app context). The code they cover is fine; the scripts need a signed-in
 test client (see `request_audit_test.py`, which sets `session["uid"]`).
+
+**From WSL** the same Windows interpreter works — `.venv/Scripts/python.exe -X utf8 debug/<file>` —
+but pass `-X utf8`: WSL's `PYTHONUTF8` is not forwarded to Windows processes, and without it the
+PASS/FAIL lines with → or é crash on cp1252.
 
 JS syntax check after `render_pages.py` (from WSL, needs node):
 ```
@@ -115,7 +126,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `applicants.exam_sent_by` — prefix of whoever sent the exam (reply checks look in *their* mail folder).
 - `applicants.owner_email` — responsible recruiter (`users.email`).
 - `dbo.users` — `email, name, firstname, mobile, tel, prefix, role('admin'|'hr'), is_active, username, password_hash, is_approved, approved_by, approved_at, last_login_at`.
-- `dbo.stage_history` — `application_id, action, from_value, to_value, actor_email, at`. Actions: `move`, `exam_sent`, `exam_resent`, `exam_failed`, `owner`.
+- `applicants.source` — `NULL` = scraped from JobDB, `'manual'` = typed in with Add Candidate (its `application_id` is `manual-<uuid>`, its `candidate_key` `manual|<uuid>`, `status` `'Manual'`, `applied_at` the Thai time it was added).
+- `dbo.stage_history` — `application_id, action, from_value, to_value, actor_email, at`. Actions: `move`, `exam_sent`, `exam_resent`, `exam_failed`, `owner`, `added` (to_value = the starting stage).
 - `dbo.email_templates` — one row per template (`template_id, doc JSON, sort_order, updated_by, updated_at`).
 - `dbo.requests.created_by / updated_by` (`users.email`), `updated_at`, `revision` (INT, +1 per save).
 - `dbo.requests.status` (`'doing'` default | `'completed'`), `completed_by`, `completed_at`.
@@ -124,6 +136,10 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `set_stage(aid, stage, date, exam_sent_by=None, actor=None)` — `UPDATE … WHERE stage = <what we read>`; returns `conflict=True` if someone moved the card first; claims the owner on the first move out of Pending; writes `stage_history`.
 - `claim_exam_send / undo_exam_claim` — reserve the card **before** Graph sends; `already_sent=True` blocks a second email unless `resend=True`.
 - `set_owner`, `list_history`.
+- Manual candidates: `add_manual_candidate(job_id, full_name=…, …, actor)` inserts the Pending row
+  (name copied into both `full_name_jobdb` and `full_name_edit`; the typed Expect salary also fills
+  `expect_salary` so the 💰 pill and salary sort work) and logs `added`; `find_duplicate_candidate`
+  (same e-mail or same normalised name within the job); `set_resume`; `delete_candidate` (rollback only).
 - Users: `list_users, get_user_by_id/username/prefix/email, save_user (validates, hashes password), register_user (pending HR), approve_user, touch_login, count_pending_users, admin_has_password, first_admin_without_password, seed_default_user`.
 - `hash_password / verify_password` — salted SHA-256.
 - `load_email_templates / save_email_templates` — the store behind `email_kit.templates`.
@@ -144,6 +160,13 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   `{"conflict": true, "error": "<name> saved this request at <time> …"}` when a teammate saved
   first; `force: true` overwrites. `_request_json()` formats request rows for JSON/templates.
 - `POST /api/requests/<id>/status` `{status: "completed"|"doing"}` — Admin and HR.
+- `POST /api/candidates/add` — **multipart** form (`job_id, name_title, nickname, full_name*, email,
+  phone, remark, current_salary, minimum_expect_salary, expect_salary, resume (PDF), force`). Admin and
+  HR. **409** `{"duplicate": {...}}` when the same e-mail or name is already in the job (the UI asks
+  "add anyway?" and resends with `force=1`); 400 for a missing name / bad e-mail / non-PDF; 404 unknown
+  job; **413** JSON above `MAX_RESUME_MB` (20). The résumé is written where the scraper would put it —
+  `resume/<job title>/<name>_<application_id>.pdf` (`_safe_filename` mirrors `scraper._safe_filename`
+  so the web app never imports Playwright) — and the row is deleted again if the file cannot be saved.
 - `_user_prefix()` = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
 - Context processor injects `me` and `pending_users` into every template; `templates/_who.html` renders the top-bar identity.
 - `PORT` env var chooses the listening port.
@@ -165,6 +188,11 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ### Templates / static
 - `login.html`, `register.html`, `setup.html`, `_account_fields.html`, `_who.html`.
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
+  **➕ Add Candidate** toolbar on the Pending stage (shown even when Pending is empty) → `#addModal`
+  (`openAddModal / confirmAdd`, `FormData` upload; after a successful add the list reloads, the new
+  card scrolls into view with a gold `just-added` ring). Manual cards show "✍ Added by hand" instead of
+  the JobDB line plus a dashed **✍ Manual** pill; history reads "Added by hand → Pending".
+- `tracking.html` — the same "✍ Added by hand" line for manual rows (`list_all_candidates` carries `source`).
 - `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**
   (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
 - `email_templates.html` — users manager (Admin). For HR the editor sits in one
