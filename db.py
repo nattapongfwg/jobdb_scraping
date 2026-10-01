@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 import re
 import secrets
 import logging
@@ -410,7 +411,8 @@ class Database:
         "exp_total, exp_directly, "                                                  # r[39]-r[40] (AI experience, years)
         "current_salary_edit, minimum_expect_salary_edit, expect_salary_edit, "      # r[41]-r[43] (HR salary fields)
         "request_id, "                                                               # r[44] (linked hiring request)
-        "owner_email"                                                                # r[45] (responsible recruiter)
+        "owner_email, "                                                              # r[45] (responsible recruiter)
+        "[source]"                                                                   # r[46] (NULL = scraped, 'manual' = typed in)
     )
 
     @staticmethod
@@ -448,6 +450,7 @@ class Database:
             "expect_salary_edit": r[43],
             "request_id": r[44],
             "owner_email": r[45],
+            "source": r[46],
         }
 
     def list_candidates(self, job_id: str, name_query: str = "") -> list[dict[str, Any]]:
@@ -657,6 +660,79 @@ class Database:
             "sent_exam" if moved else prev["stage"])
         self._log_history(self.conn.cursor(), application_id, "exam_failed",
                           "sent_exam" if moved else prev["stage"], prev["stage"], actor)
+        self.conn.commit()
+
+    # ---- manual candidates ("Add Candidate" on the pipeline page) ----------------
+    def find_duplicate_candidate(self, job_id: str, full_name: str,
+                                 email: str | None) -> dict[str, Any] | None:
+        """An existing row in this job that looks like the same person: the same
+        e-mail (case-insensitive) or the same normalised full name. Used to warn
+        before a manual add creates a second card for someone already scraped."""
+        name = re.sub(r"\s+", " ", (full_name or "")).strip().lower()
+        mail = (email or "").strip().lower()
+        if not name and not mail:
+            return None
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT TOP 1 application_id, full_name_edit, full_name_jobdb, stage, email "
+            "FROM dbo.applicants WHERE job_id = ? AND ("
+            "  (? <> '' AND LOWER(LTRIM(RTRIM(email))) = ?) OR "
+            "  (? <> '' AND LOWER(LTRIM(RTRIM(COALESCE(full_name_edit, full_name_jobdb)))) = ?)) "
+            "ORDER BY scraped_at DESC",
+            job_id, mail, mail, name, name)
+        r = cur.fetchone()
+        if not r:
+            return None
+        return {"application_id": r[0], "name": r[1] or r[2] or "", "stage": r[3] or "prescreen",
+                "stage_label": STAGE_LABELS.get(r[3] or "prescreen", r[3]), "email": r[4]}
+
+    def add_manual_candidate(self, job_id: str, *, full_name: str,
+                             name_title: str | None = None, nickname: str | None = None,
+                             email: str | None = None, phone: str | None = None,
+                             remark: str | None = None,
+                             current_salary: str | None = None,
+                             minimum_expect_salary: str | None = None,
+                             expect_salary: str | None = None,
+                             actor: str | None) -> str:
+        """Insert a candidate a recruiter typed in by hand. Lands in Pending with the
+        same editable fields a Pending card shows. application_id is 'manual-<uuid>'
+        and candidate_key 'manual|<uuid>' so a later SEEK scrape can neither match nor
+        overwrite the row. Logs an 'added' history row for the actor. Returns the id."""
+        aid = f"manual-{uuid.uuid4().hex}"
+        name = re.sub(r"\s+", " ", full_name or "").strip()
+        raw = json.dumps({"source": "manual", "added_by": actor}, ensure_ascii=False)
+        cur = self.conn.cursor()
+        cur.execute(
+            f"""INSERT INTO dbo.applicants
+                (application_id, job_id, candidate_key, full_name_jobdb, full_name_edit,
+                 name_title, nickname, email, phone, remark,
+                 current_salary_edit, minimum_expect_salary_edit, expect_salary_edit, expect_salary,
+                 applied_at, status, stage, [source], resume_downloaded, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        CONVERT(NVARCHAR(16), {THAI_NOW}, 120), 'Manual', 'prescreen', 'manual',
+                        0, ?)""",
+            aid, job_id, f"manual|{aid}", name, name,
+            (name_title or None), (nickname or None), (email or None), (phone or None),
+            ((remark or "")[:1000] or None),
+            (current_salary or None), (minimum_expect_salary or None),
+            (expect_salary or None), (expect_salary or None), raw)
+        self._log_history(cur, aid, "added", None, "prescreen", actor)
+        self.conn.commit()
+        return aid
+
+    def set_resume(self, application_id: str, filename: str | None, path: str | None) -> None:
+        """Record (or clear) the résumé file for one candidate."""
+        self.conn.cursor().execute(
+            "UPDATE dbo.applicants SET resume_filename = ?, resume_path = ?, resume_downloaded = ? "
+            "WHERE application_id = ?",
+            filename, path, 1 if path else 0, application_id)
+        self.conn.commit()
+
+    def delete_candidate(self, application_id: str) -> None:
+        """Remove one candidate and its history (used to roll back a failed manual add)."""
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM dbo.stage_history WHERE application_id = ?", application_id)
+        cur.execute("DELETE FROM dbo.applicants WHERE application_id = ?", application_id)
         self.conn.commit()
 
     def get_candidate(self, application_id: str) -> dict[str, Any] | None:

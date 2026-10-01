@@ -307,10 +307,17 @@ IF COL_LENGTH('dbo.applicants', 'exam_sent_by') IS NULL
 -- recruiter still sees and acts on every candidate.
 IF COL_LENGTH('dbo.applicants', 'owner_email') IS NULL
     ALTER TABLE dbo.applicants ADD owner_email NVARCHAR(300) NULL;
+-- Where the row came from: NULL = scraped from SEEK/JobDB, 'manual' = typed in by a
+-- recruiter with the "Add Candidate" button on the pipeline page (lands in Pending;
+-- its application_id is 'manual-<uuid>' and its candidate_key 'manual|<uuid>', so the
+-- scraper's MERGE can never match or overwrite it).
+IF COL_LENGTH('dbo.applicants', 'source') IS NULL
+    ALTER TABLE dbo.applicants ADD [source] NVARCHAR(20) NULL;
 GO
 
 -- Audit trail: who moved which candidate where, and when (multi-user Phase 2).
--- action: 'move' | 'exam_sent' | 'exam_resent' | 'exam_failed' | 'owner'.
+-- action: 'move' | 'exam_sent' | 'exam_resent' | 'exam_failed' | 'owner' | 'added'
+-- ('added' = a recruiter typed the candidate in by hand; to_value = the starting stage).
 -- from_value/to_value hold stage keys for moves and owner emails for 'owner'.
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'stage_history')
 BEGIN

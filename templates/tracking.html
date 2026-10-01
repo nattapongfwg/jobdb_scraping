@@ -183,7 +183,7 @@ function render(){
   const shown = candidates.slice((page - 1) * pageSize, page * pageSize);
   tbody.innerHTML = shown.map(c => {
     const id = c.application_id;
-    const scraped = `<div class="scraped">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>`;
+    const scraped = `<div class="scraped">${c.source==="manual" ? "✍ Added by hand" : `JobDB: ${esc(c.full_name_jobdb)||"—"}`}</div>`;
     const exam = c.is_sent_exam
       ? `<span class="pill yes">✔ Sent${c.exam_sent_at?(" · "+esc(c.exam_sent_at.slice(0,16))):""}</span>`
       : `<span class="pill no">✘ Not sent</span>`;

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -42,6 +43,9 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 app = Flask(__name__)
 cfg = load_config()
 PROJECT_ROOT = Path(__file__).resolve().parent
+# Only "Add Candidate" uploads a file (a PDF résumé); cap request bodies accordingly.
+MAX_RESUME_MB = 20
+app.config["MAX_CONTENT_LENGTH"] = MAX_RESUME_MB * 1024 * 1024
 
 
 def _secret_key() -> str:
@@ -805,6 +809,85 @@ def api_job_active():
     with Database(cfg) as db:
         db.set_job_active(str(data["job_id"]), bool(data["is_active"]))
     return jsonify({"ok": True})
+
+
+# Mirrors scraper._safe_filename (kept here so the web app never imports Playwright):
+# keep Thai/Unicode letters, swap filesystem-unfriendly characters for "_".
+_ILLEGAL_FS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+_EMAIL_OK = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def _safe_filename(value: str, fallback: str) -> str:
+    cleaned = _ILLEGAL_FS.sub("_", (value or "").strip())
+    cleaned = re.sub(r"\s+", "_", cleaned).strip("._ ")
+    return cleaned[:120] or fallback
+
+
+@app.errorhandler(413)
+def _request_too_large(_e):
+    return jsonify({"ok": False,
+                    "error": f"File too large — the résumé must be under {MAX_RESUME_MB} MB."}), 413
+
+
+@app.post("/api/candidates/add")
+def api_candidate_add():
+    """"Add Candidate" on the pipeline page: a recruiter (Admin or HR) types a candidate
+    in by hand. Multipart form with the Pending-card fields plus an optional PDF résumé.
+    The row lands in **Pending** for that job, tagged source='manual', and an 'added'
+    history row names who typed it in. Answers 409 with the look-alike row when the
+    same e-mail or name is already in the job — resend with force=1 to add anyway."""
+    f = request.form
+    job_id = (f.get("job_id") or "").strip()
+    full_name = re.sub(r"\s+", " ", f.get("full_name") or "").strip()
+    email = (f.get("email") or "").strip()
+    if not job_id:
+        return jsonify({"ok": False, "error": "job_id required"}), 400
+    if not full_name:
+        return jsonify({"ok": False, "error": "Full name is required."}), 400
+    if email and not _EMAIL_OK.fullmatch(email):
+        return jsonify({"ok": False, "error": "That e-mail address doesn't look right."}), 400
+    up = request.files.get("resume")
+    pdf_bytes = b""
+    if up is not None and up.filename:
+        pdf_bytes = up.read()
+        if not up.filename.lower().endswith(".pdf") or not pdf_bytes.startswith(b"%PDF"):
+            return jsonify({"ok": False, "error": "The résumé must be a PDF file."}), 400
+    with Database(cfg) as db:
+        job = db.get_job(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Job not found."}), 404
+        if not f.get("force"):
+            dup = db.find_duplicate_candidate(job_id, full_name, email)
+            if dup:
+                return jsonify({"ok": False, "duplicate": dup,
+                                "error": f"{dup['name']} is already in this job "
+                                         f"({dup['stage_label']})."}), 409
+        aid = db.add_manual_candidate(
+            job_id, full_name=full_name,
+            name_title=(f.get("name_title") or "").strip()[:10],
+            nickname=(f.get("nickname") or "").strip()[:100],
+            email=email[:300], phone=(f.get("phone") or "").strip()[:100],
+            remark=(f.get("remark") or "").strip(),
+            current_salary=(f.get("current_salary") or "").strip()[:100],
+            minimum_expect_salary=(f.get("minimum_expect_salary") or "").strip()[:100],
+            expect_salary=(f.get("expect_salary") or "").strip()[:100],
+            actor=_current_email())
+        if pdf_bytes:
+            # Same layout the scraper uses: resume/<job title>/<name>_<application_id>.pdf
+            sub = _safe_filename(job.get("title") or "", "")
+            folder = cfg.resume_dir / sub if sub else cfg.resume_dir
+            dest = folder / f"{_safe_filename(full_name, 'candidate')}_{aid}.pdf"
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(pdf_bytes)
+            except OSError as e:
+                db.delete_candidate(aid)   # roll back: no half-added card without its file
+                logging.exception("manual add: could not save résumé")
+                return jsonify({"ok": False, "error": f"Could not save the résumé: {e}"}), 500
+            db.set_resume(aid, dest.name, str(dest))
+    logging.info("Manual candidate %s added to job %s by %s", aid, job_id, _current_email())
+    return jsonify({"ok": True, "application_id": aid, "full_name": full_name,
+                    "resume": bool(pdf_bytes)})
 
 
 @app.post("/api/candidates/update")

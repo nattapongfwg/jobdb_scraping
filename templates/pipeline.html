@@ -104,6 +104,44 @@
   </div>
 </div>
 
+<!-- add-candidate modal (Pending: a recruiter types a candidate in by hand, optional PDF résumé) -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal wide">
+    <h3>➕ Add candidate</h3>
+    <p>Typed in by hand (walk-in, referral, another job board). The card lands in
+      <b>Pending</b> for <b>{{ job.title or '(untitled)' }}</b> with the same fields as every Pending card.</p>
+    <form id="addForm" onsubmit="return false">
+      <div class="cfg-grid add-grid">
+        <label class="add-title">Title
+          <select id="adTitle"></select></label>
+        <label>Nickname
+          <input type="text" id="adNick" maxlength="100" placeholder="nickname"></label>
+        <label class="add-span2">Full name <span class="req">*</span>
+          <input type="text" id="adName" maxlength="300" placeholder="First Last" required></label>
+        <label>Email
+          <input type="email" id="adEmail" maxlength="300" placeholder="name@example.com"></label>
+        <label>Phone
+          <input type="text" id="adPhone" maxlength="100" placeholder="08x-xxx-xxxx"></label>
+        <label>💰 Current salary
+          <input type="text" id="adCur" maxlength="100" placeholder="e.g. 30K"></label>
+        <label>📉 Min expect
+          <input type="text" id="adMin" maxlength="100" placeholder="e.g. 32K"></label>
+        <label>📈 Expect
+          <input type="text" id="adExp" maxlength="100" placeholder="e.g. 35K"></label>
+        <label>📄 Résumé (PDF)
+          <input type="file" id="adResume" accept="application/pdf,.pdf"></label>
+        <label class="add-span2">📝 Remark
+          <textarea id="adRemark" rows="3" maxlength="1000" placeholder="Remark (max 1000 characters)…"></textarea></label>
+      </div>
+    </form>
+    <p class="muted add-err" id="adErr" style="display:none"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeAddModal()">Cancel</button>
+      <button class="btn" id="adBtn" onclick="confirmAdd()">Add to Pending</button>
+    </div>
+  </div>
+</div>
+
 <!-- evaluation modal (Move to Evaluation: fill form → generate Excel + draft email) -->
 <div class="modal-overlay" id="evalModal">
   <div class="modal wide">
@@ -325,6 +363,64 @@ function toggleMine(){
 }
 window.toggleMine = toggleMine;
 
+/* ---------- add candidate (typed in by hand → Pending) ---------- */
+let adding = false;
+function openAddModal(){
+  $("#addForm").reset();
+  $("#adTitle").innerHTML = titleOpts("");
+  const err = $("#adErr"); err.style.display = "none"; err.textContent = "";
+  $("#adBtn").disabled = false; $("#adBtn").textContent = "Add to Pending";
+  $("#addModal").classList.add("open");
+  setTimeout(() => $("#adName").focus(), 50);
+}
+function closeAddModal(){ if(adding) return; $("#addModal").classList.remove("open"); }
+function addError(msg){ const e = $("#adErr"); e.textContent = msg; e.style.display = msg ? "block" : "none"; }
+async function confirmAdd(force=false){
+  if(adding) return;
+  const name = $("#adName").value.replace(/\s+/g, " ").trim();
+  if(!name){ addError("Full name is required."); $("#adName").focus(); return; }
+  const file = $("#adResume").files[0];
+  if(file && !/\.pdf$/i.test(file.name)){ addError("The résumé must be a PDF file."); return; }
+  const fd = new FormData();
+  fd.append("job_id", JOB_ID);
+  fd.append("name_title", $("#adTitle").value);
+  fd.append("nickname", $("#adNick").value.trim());
+  fd.append("full_name", name);
+  fd.append("email", $("#adEmail").value.trim());
+  fd.append("phone", $("#adPhone").value.trim());
+  fd.append("current_salary", $("#adCur").value.trim());
+  fd.append("minimum_expect_salary", $("#adMin").value.trim());
+  fd.append("expect_salary", $("#adExp").value.trim());
+  fd.append("remark", $("#adRemark").value.trim());
+  if(force) fd.append("force", "1");
+  if(file) fd.append("resume", file, file.name);
+  adding = true; addError("");
+  const btn = $("#adBtn"); btn.disabled = true; btn.textContent = file ? "Uploading…" : "Adding…";
+  try {
+    const r = await fetch("/api/candidates/add", { method: "POST", body: fd });
+    const j = await r.json().catch(() => ({}));
+    if(r.status === 409 && j.duplicate){
+      adding = false; btn.disabled = false; btn.textContent = "Add to Pending";
+      const d = j.duplicate;
+      if(confirm(`${d.name} is already in this job (${d.stage_label}${d.email ? ", " + d.email : ""}).\n\nAdd ${name} anyway as a separate card?`)) return confirmAdd(true);
+      return;
+    }
+    if(!r.ok || !j.ok){ throw new Error(j.error || `Add failed (HTTP ${r.status})`); }
+    adding = false;
+    $("#addModal").classList.remove("open");
+    await load();
+    if(selectedStage !== "prescreen") selectStage("prescreen");
+    toast(`➕ Added ${name} to Pending${j.resume ? " with résumé" : ""}.`);
+    const card = document.querySelector(`.cand-card[data-id="${CSS.escape(j.application_id)}"]`);
+    if(card){ card.scrollIntoView({ behavior: "smooth", block: "center" }); card.classList.add("just-added");
+      setTimeout(() => card.classList.remove("just-added"), 2500); }
+  } catch(e){
+    adding = false; btn.disabled = false; btn.textContent = "Add to Pending";
+    addError(e.message || "Could not add the candidate.");
+  }
+}
+window.openAddModal = openAddModal; window.closeAddModal = closeAddModal; window.confirmAdd = confirmAdd;
+
 /* ---------- history ---------- */
 function histText(h){
   const lbl = k => STAGE_LABEL[k] || k || "—";
@@ -335,6 +431,7 @@ function histText(h){
     case "exam_resent": return "Exam sent again";
     case "exam_failed": return `Exam email failed · back to ${lbl(h.to_value)}`;
     case "owner":       return `Owner ${who(h.from_value)} → ${who(h.to_value)}`;
+    case "added":       return `Added by hand → ${lbl(h.to_value)}`;
     default:            return h.action || "";
   }
 }
@@ -1321,6 +1418,12 @@ function renderCards(){
   const targetLabels = targets.map(k => STAGE_LABEL[k]).join(" / ");
   let html = `<p class="drag-hint">📋 <b>${STAGE_LABEL[selectedStage]}</b> — ${list.length} candidate${list.length!==1?"s":""}.` +
     (targets.length ? ` Drag a card onto <b>${esc(targetLabels)}</b> (or use the buttons).` : ` Final stage.`) + `</p>`;
+  // "Add Candidate" — Pending stage only: that is where a hand-typed candidate starts.
+  if(selectedStage==="prescreen"){
+    html += `<div class="add-bar"><button class="btn tiny" onclick="openAddModal()"
+      title="Type in a candidate who did not come through JobDB (walk-in, referral, another job board)">➕ Add Candidate</button>
+      <span class="muted">Not from JobDB? Add the candidate by hand — with their PDF résumé if you have it.</span></div>`;
+  }
   if(!list.length){ box.innerHTML = html + `<div class="empty-state">No candidates in this stage.</div>`; return; }
   // Multi-select toolbar — Sent Exam stage only.
   if(selectedStage==="sent_exam"){
@@ -1345,11 +1448,12 @@ function renderCards(){
           <input class="edit cd-edit cd-name" data-f="full_name_edit" value="${esc(c.full_name_edit)}" placeholder="name">
           <input class="edit cd-edit cd-email" data-f="email" value="${esc(c.email)}" placeholder="no email"></p>
         <div class="cand-sub2"><span class="drag-handle" title="Drag to move">⠿</span>
-          <div class="scraped cd-jobdb">JobDB: ${esc(c.full_name_jobdb)||"—"}</div>
+          <div class="scraped cd-jobdb">${c.source==="manual" ? `✍ Added by hand` : `JobDB: ${esc(c.full_name_jobdb)||"—"}`}</div>
           <input class="edit cd-edit cd-phone" data-f="phone" value="${esc(fmtPhone(c.phone))}" placeholder="phone">
         </div>
         <div class="cand-tags">
           ${ownerPill(c)}
+          ${c.source==="manual"?`<span class="pill manual" title="Typed in by a recruiter, not scraped from JobDB">✍ Manual</span>`:""}
           ${c.expect_salary?`<span class="pill wait">💰 ฿${esc(c.expect_salary)}</span>`:""}
           ${examPill(c)}
           ${replyPill(c)}
