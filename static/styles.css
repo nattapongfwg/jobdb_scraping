@@ -108,6 +108,8 @@ fieldset.profile-fields:disabled input { color: var(--ink); opacity: 1; -webkit-
 /* Manage users (Admin) on My profile */
 .users-wrap { padding-top: 0; }
 .auth-wrap.profile-wrap { padding-bottom: 24px; }
+.auth-wrap.profile-col { flex-direction: column; align-items: center; gap: 18px; }
+.auth-card .pw-title { margin: 0 0 4px; font-size: 18px; }
 .users-table input:not([type=checkbox]), .users-table select {
   padding: 6px 8px; min-width: 64px; border: 1px solid var(--line); border-radius: 7px;
   background: var(--bg-2); color: var(--ink); font: inherit; font-size: 13px; }

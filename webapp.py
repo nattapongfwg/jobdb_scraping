@@ -391,7 +391,26 @@ def profile_page():
         except ValueError as exc:
             return render_template("profile.html", error=str(exc), form=form), 400
         return redirect(url_for("profile_page", saved=1))
-    return render_template("profile.html", form=me, saved=request.args.get("saved"))
+    return render_template("profile.html", form=me, saved=request.args.get("saved"),
+                           pw_saved=request.args.get("pw"))
+
+
+@app.post("/profile/password")
+def profile_password():
+    """Change your own password (HR's only self-service on My profile): the current
+    password must be right and the new one typed twice. Post/redirect/get: success
+    comes back as /profile?pw=1."""
+    me = current_user()
+    new = request.form.get("new_password", "")
+    try:
+        if new != request.form.get("confirm_password", ""):
+            raise ValueError("The two new passwords do not match.")
+        with Database(cfg) as db:
+            db.change_own_password(me["user_id"], request.form.get("old_password", ""), new)
+    except ValueError as exc:
+        return render_template("profile.html", form=me, pw_error=str(exc)), 400
+    logging.info("User %s changed their password", me.get("username"))
+    return redirect(url_for("profile_page", pw=1, _anchor="password"))
 
 
 @app.route("/setup", methods=["GET", "POST"])

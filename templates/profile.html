@@ -14,7 +14,7 @@
   {% include "_who.html" %}
 </div>
 {% set can_edit = me.role == 'admin' %}
-<div class="auth-wrap{% if can_edit %} profile-wrap{% endif %}">
+<div class="auth-wrap profile-col{% if can_edit %} profile-wrap{% endif %}">
   <form class="auth-card" method="post" action="/profile" autocomplete="off">
     <h1 class="page-title">My <span class="accent">profile</span></h1>
     <p class="page-sub" style="margin-top:0">
@@ -25,7 +25,7 @@
     {% if saved %}<p class="auth-notice">✔ Profile saved.</p>{% endif %}
     {% if error %}<p class="auth-error">{{ error }}</p>{% endif %}
     {% if not can_edit %}
-    <p class="auth-view-only">🔒 View only — ask an Admin to change your details or reset your password.</p>
+    <p class="auth-view-only">🔒 View only — ask an Admin to change your details. You can change your password below.</p>
     {% endif %}
     <fieldset class="profile-fields"{% if not can_edit %} disabled{% endif %}>
       <div class="auth-grid">
@@ -62,6 +62,23 @@
     <button class="btn" type="submit">Save profile</button>
     {% endif %}
   </form>
+  {% if not can_edit %}
+  <!-- HR: the only self-service change — their own password, old one required -->
+  <form class="auth-card" method="post" action="/profile/password#password" id="password" autocomplete="off">
+    <h2 class="pw-title">🔑 Change password</h2>
+    {% if pw_saved %}<p class="auth-notice">✔ Password changed. Use the new one next time you sign in.</p>{% endif %}
+    {% if pw_error %}<p class="auth-error">{{ pw_error }}</p>{% endif %}
+    <label>Current password
+      <input type="password" name="old_password" required autocomplete="current-password"></label>
+    <div class="auth-grid">
+      <label>New password <span class="muted">(8+ characters)</span>
+        <input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+      <label>Confirm new password
+        <input type="password" name="confirm_password" required minlength="8" autocomplete="new-password"></label>
+    </div>
+    <button class="btn" type="submit">Change password</button>
+  </form>
+  {% endif %}
 </div>
 
 {% if can_edit %}

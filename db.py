@@ -1182,6 +1182,21 @@ class Database:
         self.conn.commit()
         return self.get_user_by_id(user_id)
 
+    def change_own_password(self, user_id: int, old_password: str, new_password: str) -> None:
+        """A signed-in user changes their own password: the current one must match.
+        Raises ValueError with a message fit for the UI; nothing changes on error."""
+        row = self.conn.cursor().execute(
+            "SELECT password_hash FROM dbo.users WHERE user_id = ?", int(user_id)).fetchone()
+        if not row or not verify_password(old_password or "", row[0]):
+            raise ValueError("Your current password is not correct.")
+        if len(new_password or "") < self.MIN_PASSWORD:
+            raise ValueError(f"The new password must be at least {self.MIN_PASSWORD} characters.")
+        if new_password == old_password:
+            raise ValueError("The new password must be different from the current one.")
+        self.conn.cursor().execute("UPDATE dbo.users SET password_hash = ? WHERE user_id = ?",
+                                   hash_password(new_password), int(user_id))
+        self.conn.commit()
+
     def touch_login(self, user_id: int) -> None:
         self.conn.cursor().execute(
             f"UPDATE dbo.users SET last_login_at = {THAI_NOW} WHERE user_id = ?", int(user_id))

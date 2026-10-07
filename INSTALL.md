@@ -142,7 +142,9 @@ PC that points at the same database shares them.
   (candidates, exams, shortlists, interviews, evaluations, offers) and email templates,
   but no scraping, mailbox sign-in or user management.
 - **Passwords** are stored as salted SHA-256 hashes. An Admin resets one by typing a
-  new password on the user's row in Manage users. Deactivating a user signs them out.
+  new password on the user's row in Manage users. HR can change their own password on
+  **My profile** (they must type the current one first); everything else on their profile is
+  view-only. Deactivating a user signs them out.
 - Sessions are signed with `.secret_key` (created automatically next to `webapp.py`,
   not in Git). Set `SECRET_KEY` in `.env` instead if you prefer; changing it signs
   everyone out. `PORT` in `.env` changes the listening port (default 2757).
