@@ -3,10 +3,17 @@
   Run the Recruitment board (webapp.py) as a per-user background task that starts at logon.
 
 .DESCRIPTION
-  Registers a Windows Scheduled Task ("JobDB Recruitment Board") that launches
-  run_webapp.cmd hidden, under YOUR account, every time you log on. Running as
-  your own user keeps SQL Server Windows Authentication, the Graph token cache
-  and OneDrive paths working exactly as when you start webapp.py by hand.
+  Registers a Windows Scheduled Task that launches run_webapp.cmd hidden, under YOUR
+  account, every time you log on. Running as your own user keeps SQL Server Windows
+  Authentication, the Graph token cache and OneDrive paths working exactly as when
+  you start webapp.py by hand.
+
+  Per-copy settings come from this folder's .env:
+    SERVICE_NAME  task name   (blank = "JobDB Recruitment Board")
+    PORT          port        (blank = 2757)
+    HOST          127.0.0.1 = this PC only (default); 0.0.0.0 = the office LAN too
+  Two copies on one PC (e.g. live + a dev copy) need different SERVICE_NAME and PORT;
+  install refuses to take over a task that belongs to another folder.
 
   Usage (PowerShell, from the project folder):
     .\service.ps1 install            register the task and start the board
@@ -15,13 +22,17 @@
     .\service.ps1 deploy [-Pull]     [git pull] -> pip install -> restart -> health check
     .\service.ps1 logs [-Follow]     tail logs\webapp.log
     .\service.ps1 stop | start | uninstall
+    .\service.ps1 firewall           allow other LAN computers in on PORT (asks for Administrator)
+    .\service.ps1 firewall-remove    close that port again (asks for Administrator)
 
   From WSL:  powershell.exe -NoProfile -ExecutionPolicy Bypass -File E:\jobdb_scraping\service.ps1 status
+             (or the same path in any other copy of the board, e.g. E:\jobdb_multiuser)
 #>
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('install', 'uninstall', 'start', 'stop', 'restart', 'status', 'logs', 'deploy', 'help')]
+  [ValidateSet('install', 'uninstall', 'start', 'stop', 'restart', 'status', 'logs', 'deploy',
+               'firewall', 'firewall-remove', 'help')]
   [string]$Action = 'help',
   [switch]$Pull,
   [switch]$Follow
@@ -29,8 +40,27 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root     = $PSScriptRoot
-$TaskName = 'JobDB Recruitment Board'
-$Url      = 'http://localhost:2757'
+
+# KEY=value lines of this folder's .env (comments and blanks skipped, quotes stripped).
+function Read-DotEnv {
+  $vals = @{}
+  $path = Join-Path $Root '.env'
+  if (Test-Path $path) {
+    foreach ($line in Get-Content $path -Encoding UTF8) {
+      if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$') {
+        $vals[$Matches[1]] = $Matches[2].Trim('"').Trim("'")
+      }
+    }
+  }
+  return $vals
+}
+$DotEnv   = Read-DotEnv
+$TaskName = if ($DotEnv['SERVICE_NAME']) { $DotEnv['SERVICE_NAME'] } else { 'JobDB Recruitment Board' }
+$Port     = if ($DotEnv['PORT']) { [int]$DotEnv['PORT'] } else { 2757 }
+$BindHost = if ($DotEnv['HOST']) { $DotEnv['HOST'] } else { '127.0.0.1' }
+$Url      = "http://localhost:$Port"
+$Health   = "http://127.0.0.1:$Port/login"
+$FwRule   = "$TaskName - LAN port $Port"
 $LogDir   = Join-Path $Root 'logs'
 $LogFile  = Join-Path $LogDir 'webapp.log'
 $StopFlag = Join-Path $LogDir 'stop.flag'
@@ -42,7 +72,7 @@ function Write-Step([string]$m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Get-Task { Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
 
 function Get-Http {
-  try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 $Url).StatusCode } catch { 0 }
+  try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 $Health).StatusCode } catch { 0 }
 }
 
 # Every process that belongs to this app: the hidden launcher, the keep-alive cmd, and
@@ -102,6 +132,14 @@ function Start-App {
 }
 
 function Install-App {
+  # Never take over another copy's task (e.g. the live board's) by re-registering its name.
+  $existing = Get-Task
+  if ($existing) {
+    $dir = $existing.Actions[0].WorkingDirectory
+    if ($dir -and ((Resolve-Path $dir -ErrorAction SilentlyContinue).Path -ne (Resolve-Path $Root).Path)) {
+      throw "Task '$TaskName' already runs the board in $dir. Set a different SERVICE_NAME (and PORT) in $Root\.env, then run install again."
+    }
+  }
   Write-Step "Registering scheduled task '$TaskName' (at logon of $User, hidden window)"
   $action    = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$Vbs`"" -WorkingDirectory $Root
   $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $User
@@ -143,7 +181,53 @@ function Show-Status {
   if (Get-Command git -ErrorAction SilentlyContinue) {
     Write-Host ("Code      : {0}" -f (git -C $Root log -1 --format='%h %s (%cr)' 2>$null))
   }
+  Write-Host ("Listens on: {0}:{1}" -f $BindHost, $Port)
+  if ($BindHost -ne '127.0.0.1' -and $BindHost -ne 'localhost') {
+    foreach ($ip in Get-LanAddresses) { Write-Host ("LAN       : http://{0}:{1}" -f $ip, $Port) -ForegroundColor Green }
+    $rule = Get-NetFirewallRule -DisplayName $FwRule -ErrorAction SilentlyContinue
+    Write-Host ("Firewall  : {0}" -f $(if ($rule) { "rule '$FwRule' present" } else { 'no port rule (run  .\service.ps1 firewall  as Administrator)' }))
+  }
   Write-Host ("Logs      : {0}" -f $LogFile)
+}
+
+# This PC's IPv4 address on each network with a gateway (Wi-Fi / Ethernet), i.e. what
+# colleagues type in their browser. Virtual adapters (WSL, Hyper-V) have no gateway.
+function Get-LanAddresses {
+  Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+    ForEach-Object { $_.IPv4Address.IPAddress }
+}
+
+function Test-Admin {
+  ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Re-run this script elevated (UAC prompt) for the firewall actions, then return.
+function Invoke-Elevated([string]$what) {
+  Write-Step "Windows will ask for Administrator permission to $what"
+  $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", $Action)
+  if ($p.ExitCode) { throw "The elevated step failed (exit $($p.ExitCode))." }
+}
+
+# Inbound TCP on PORT, only on Domain/Private networks (never Public Wi-Fi), and only
+# from private LAN addresses.
+function Open-Firewall {
+  if (-not (Test-Admin)) { Invoke-Elevated "open port $Port"; Show-Status; return }
+  Remove-NetFirewallRule -DisplayName $FwRule -ErrorAction SilentlyContinue
+  New-NetFirewallRule -DisplayName $FwRule -Direction Inbound -Action Allow -Protocol TCP `
+    -LocalPort $Port -Profile Domain, Private `
+    -RemoteAddress @('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16') `
+    -Description "Recruitment board ($Root) for other PCs on the office LAN. Managed by service.ps1." | Out-Null
+  Write-Host "Firewall rule '$FwRule' added (TCP $Port, Domain/Private networks, LAN addresses only)." -ForegroundColor Green
+}
+
+function Close-Firewall {
+  if (-not (Get-NetFirewallRule -DisplayName $FwRule -ErrorAction SilentlyContinue)) { Write-Host 'No firewall rule to remove.'; return }
+  if (-not (Test-Admin)) { Invoke-Elevated "close port $Port"; return }
+  Remove-NetFirewallRule -DisplayName $FwRule
+  Write-Host "Firewall rule '$FwRule' removed." -ForegroundColor Green
 }
 
 function Deploy-App {
@@ -174,5 +258,7 @@ switch ($Action) {
   'status'    { Show-Status }
   'logs'      { Show-Logs 60 }
   'deploy'    { Deploy-App }
+  'firewall'  { Open-Firewall }
+  'firewall-remove' { Close-Firewall }
   default     { Get-Help $PSCommandPath -Detailed }
 }

@@ -30,7 +30,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
-| Hosting (Phase 4) | **Parked.** The user does not want to discuss servers yet. Nothing in Phase 4 has started. |
+| Hosting (Phase 4) | **Started small (2026-10-07, at the user's request):** the dev copy runs as a background task on this PC and is reachable on the office LAN (`HOST=0.0.0.0`, waitress). Still **not** done: a dedicated server, merging the per-PC databases, moving résumés to a shared disk. |
 
 ---
 
@@ -69,11 +69,23 @@ who did it, and the app's own logic says who is responsible for each candidate.
 
 ## 3. How to run the dev copy
 
+Since 2026-10-07 the dev copy runs as its **own background task**, **"JobDB Multiuser Board (dev)"**
+(dev `.env`: `SERVICE_NAME=…`, `PORT=2777`, `HOST=0.0.0.0`), separate from the live task
+"JobDB Recruitment Board":
 ```
 cd /d E:\jobdb_multiuser
-.venv\Scripts\python.exe webapp.py
+.\service.ps1 status | restart | stop | start | logs | deploy
 ```
-Open <http://localhost:2777>. Startup applies `schema.sql` (idempotent, so new columns and
+From WSL: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'E:\jobdb_multiuser\service.ps1' status`.
+**Restart it after editing any `.py` file** (`.\service.ps1 restart`); tests that boot their own server
+use other ports (2790+), so they don't clash with it.
+
+Open <http://localhost:2777> here, or from **other PCs on the office LAN**: <http://10.33.10.51:2777>
+(Wi-Fi IP on 2026-10-07; `status` prints the current one). The existing Windows Firewall rule
+allowing `python.exe` on Domain networks already lets them in; `.\service.ps1 firewall` (needs
+Administrator) adds a narrower rule for just this port. This is the dev database (copy of
+2026-09-30), not live data. Served by **waitress** (`requirements.txt`); `webapp.py` falls back to
+Flask's server if waitress is missing. Startup applies `schema.sql` (idempotent, so new columns and
 tables appear automatically) and seeds one Admin row if the `users` table is empty.
 
 - **First visit** goes to `/setup` to create the Admin account, pre-filled from the seeded
@@ -239,6 +251,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 
 ## 5. Things to know (gotchas)
 
+- **`service.ps1` reads `SERVICE_NAME` / `PORT` / `HOST` from the folder's `.env`** and refuses to
+  install over a task that runs another folder (so the dev copy can't hijack the live task).
 - **Do not develop in `E:\jobdb_scraping`.** It is live and in daily use. Bring finished
   work over as commits (cherry-pick, like the perf change) or by merging when the rollout
   is decided.

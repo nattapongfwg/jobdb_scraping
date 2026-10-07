@@ -1701,4 +1701,16 @@ if __name__ == "__main__":
                                  prefix="Na"):
             logging.info("Seeded the first board user (admin).")
     # PORT lets a dev copy of the board run beside the live one (default 2757).
-    app.run(host="127.0.0.1", port=int(os.getenv("PORT", "2757")), debug=False)
+    # HOST: 127.0.0.1 (default) = this PC only; 0.0.0.0 = other PCs on the LAN too
+    # (open the port with  service.ps1 firewall).
+    host = (os.getenv("HOST") or "127.0.0.1").strip()
+    port = int(os.getenv("PORT", "2757"))
+    try:
+        from waitress import serve        # production WSGI server: many users at once
+    except ImportError:
+        serve = None
+    if serve:
+        logging.info("Serving on http://%s:%s (waitress)", host, port)
+        serve(app, host=host, port=port, threads=8, ident="Recruitment")
+    else:
+        app.run(host=host, port=port, debug=False, threaded=True)

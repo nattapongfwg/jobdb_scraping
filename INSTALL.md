@@ -110,6 +110,25 @@ hidden **under your own account** at logon (so SQL Server Windows Auth, the Grap
 cache and OneDrive keep working). The wrapper relaunches `webapp.py` within 5 s if it ever
 crashes, and writes `logs\webapp.log` + `logs\service.log`.
 
+**Open the board to other computers on the office LAN** (optional):
+
+1. In this folder's `.env` set `HOST=0.0.0.0` (blank / `127.0.0.1` = this PC only), then
+   `.\service.ps1 restart`.
+2. `.\service.ps1 status` prints the address colleagues use, e.g. `LAN : http://10.33.10.51:2757`.
+3. If they cannot connect, open the port once: `.\service.ps1 firewall` (Windows asks for
+   Administrator). The rule allows only that TCP port, only on Domain/Private networks
+   (never public Wi-Fi), and only from private LAN addresses. `.\service.ps1 firewall-remove`
+   closes it again.
+
+Good to know: the board is served by **waitress** (installed by `deploy`), so several people
+can use it at once. Everyone must sign in. The IP comes from the office DHCP and can change; ask
+IT for a fixed IP or a DNS name if that happens. "Fetch from SEEK" opens its browser window on
+**the host PC**, so scraping is done there. The host PC must be on and logged in for the board to
+be up.
+
+**Two copies on one PC** (e.g. the live board and a dev copy): give each its own `PORT` and
+`SERVICE_NAME` in its `.env`. `install` refuses to take over a task that belongs to another folder.
+
 To run it in the foreground instead (debugging), stop the task first:
 ```powershell
 .\service.ps1 stop
