@@ -1132,7 +1132,7 @@ class Database:
     _USER_COLS = ("user_id, email, name, firstname, mobile, tel, prefix, role, is_active, "
                   "username, is_approved, password_hash, last_login_at")
     USER_ROLES = ("admin", "hr")
-    _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,50}$")
+    _USERNAME_RE = re.compile(r"^[A-Za-z._-]{1,50}$")
     MIN_PASSWORD = 8
 
     @staticmethod
@@ -1233,7 +1233,7 @@ class Database:
             raise ValueError("Role must be Admin or HR.")
         username = _s("username", 100) or None
         if username and not self._USERNAME_RE.match(username):
-            raise ValueError("Username: 3-50 letters, digits, dots, dashes or underscores.")
+            raise ValueError("Username: 1-50 letters, dots, dashes or underscores.")
         password = data.get("password") or None          # None/blank = keep the current one
         if password is not None and len(str(password)) < self.MIN_PASSWORD:
             raise ValueError(f"Password must be at least {self.MIN_PASSWORD} characters.")

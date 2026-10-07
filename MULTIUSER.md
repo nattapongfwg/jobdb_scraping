@@ -24,6 +24,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
 | Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details / passwords in Manage users). An **Admin can edit their own** details and password there. The red logo + "Recruitment" links to the Job Postings page. |
+| Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
@@ -101,7 +102,7 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, `/register` closed, Admin creates HR at `/users/new` (mismatch / duplicate / 403 for HR), 401/403 rules, reset, deactivate (39 checks) |
-| `profile_test.py` | /profile: HR view-only (disabled fields, POST 403), Admin edits own details / password (mismatch, duplicate prefix, blank keeps), logo → / and name → /profile on every page (17 checks) |
+| `profile_test.py` | /profile: HR view-only (disabled fields, POST 403), Admin edits own details / password (mismatch, duplicate prefix, blank keeps), logo → / and name → /profile on every page (24 checks) |
 | `ui_profile.py` | **browser check**: /profile as HR and as Admin (screenshots), logo click lands on / |
 | `ui_create_hr.py` | **browser check**: login page (no Register link), ➕ Create HR from the top bar, error + success, the new HR signs in; screenshots, cleans up |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |

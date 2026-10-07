@@ -39,7 +39,7 @@
       <div class="auth-grid">
         <label>Username
           <input name="username" value="{{ form.username or '' }}" required autocomplete="username"
-                 pattern="[A-Za-z0-9._-]{3,50}" title="3-50 letters, digits, dots, dashes or underscores"></label>
+                 pattern="[A-Za-z._\-]{1,50}" title="1-50 letters, dots, dashes or underscores"></label>
         <label>Folder prefix <span class="muted">(mail folders)</span>
           <input name="prefix" value="{{ form.prefix or '' }}" required maxlength="20"></label>
       </div>
