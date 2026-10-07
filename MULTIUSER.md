@@ -24,7 +24,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. HR **registers** a username; an **Admin approves** before they can sign in. |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
-| Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Only Admin edits them; HR is view-only.** |
+| Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
 | Hosting (Phase 4) | **Parked.** The user does not want to discuss servers yet. Nothing in Phase 4 has started. |
@@ -97,7 +97,7 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
-| `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR view-only templates (27 checks) |
+| `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
 | `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413 (26 checks) |
 | `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
@@ -153,7 +153,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ### `webapp.py`
 - `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
 - `@before_request _require_login` — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
-- `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/email-templates`, `/api/email-templates/delete`, `POST /api/users`, `POST /api/users/<id>/approve`.
+- `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
 - Auth pages: `/setup`, `/login`, `/logout`, `/register`.
 - New APIs: `POST /api/candidates/owner`, `GET /api/candidates/history?application_id=`, `GET/POST /api/users`, `POST /api/users/<id>/approve`.
 - `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
@@ -195,9 +195,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `tracking.html` — the same "✍ Added by hand" line for manual rows (`list_all_candidates` carries `source`).
 - `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**
   (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
-- `email_templates.html` — users manager (Admin). For HR the editor sits in one
-  `<fieldset disabled class="et-readonly">`, Add variable / insert chips are hidden, and the
-  mailbox sign-in button is hidden (`CAN_SIGN_IN`).
+- `email_templates.html` — users manager (Admin). The template editor is the same for Admin and HR
+  (create / edit / delete); only the mailbox sign-in button (`CAN_SIGN_IN`) and Manage users are Admin-only.
 - `requests.html` — **Doing / Completed tabs** (with counts; `#completed` in the URL opens that tab),
   **✔ Complete** beside Edit on Doing, **↩ Reopen** + a Completed (who/when) column on Completed;
   **Created by** / **Last edited** columns. `request.html` — the same on top of

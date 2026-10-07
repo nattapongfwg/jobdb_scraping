@@ -257,7 +257,7 @@ def _require_login():
 
 def admin_required(view):
     """Route guard: only the Admin role may call (scraping, mailbox sign-in,
-    template editing, user management)."""
+    user management). Email templates are edited by Admin and HR alike."""
     @wraps(view)
     def wrapper(*args, **kwargs):
         if not _is_admin():
@@ -967,7 +967,6 @@ def api_email_template_fields():
 
 
 @app.post("/api/email-templates")
-@admin_required
 def api_email_template_save():
     data = request.get_json(force=True)
     saved = save_template(data)
@@ -975,7 +974,6 @@ def api_email_template_save():
 
 
 @app.post("/api/email-templates/delete")
-@admin_required
 def api_email_template_delete():
     data = request.get_json(force=True)
     templates = delete_template(str(data.get("id", "")))

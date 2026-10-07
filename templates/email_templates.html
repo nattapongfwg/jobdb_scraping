@@ -60,7 +60,6 @@
   .et-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;
                 border-top: 1px solid var(--line-soft); padding-top: 18px; }
   .et-actions .spacer { margin-right: auto; }
-  fieldset.et-readonly { border: 0; padding: 0; margin: 0; min-width: 0; }
   .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .users-table th, .users-table td { padding: 4px 6px; text-align: left; vertical-align: middle; }
   .users-table th { font-weight: 600; opacity: .75; }
@@ -133,19 +132,11 @@
     <aside class="et-panel et-side">
       <h3>Templates</h3>
       <div id="tmplList"><div class="muted" style="font-size:13px">Loading…</div></div>
-      {% if me and me.role == 'admin' %}
       <button class="btn ghost" style="width:100%;margin-top:6px" onclick="newTemplate()">➕ New template</button>
-      {% else %}
-      <p class="muted" style="font-size:12px;margin-top:6px">Read-only — ask an Admin to change templates.</p>
-      {% endif %}
     </aside>
 
     <!-- RIGHT: editor -->
     <section class="et-panel et-editor">
-      {% if not (me and me.role == 'admin') %}
-      <p class="muted" style="font-size:13px;margin:0 0 10px">🔒 View only — only an Admin can change email templates.</p>
-      <fieldset disabled class="et-readonly">
-      {% endif %}
       <p class="hint" id="cfgHint"></p>
 
       <div class="et-grid">
@@ -177,15 +168,13 @@
         <div class="sec-head">
           <b>Custom variables</b>
           <span class="muted" style="font-size:12px">— your own reusable values; drop them in as <code>{name}</code></span>
-          {% if me and me.role == 'admin' %}
           <button type="button" class="btn ghost tiny" style="margin-left:auto" onclick="addCustomVar()">+ Add variable</button>
-          {% endif %}
         </div>
         <div id="cfgCustomVars"></div>
       </div>
 
-      <!-- Insert field (Admin only — HR can't edit) -->
-      <div class="et-section"{% if not (me and me.role == 'admin') %} style="display:none"{% endif %}>
+      <!-- Insert field -->
+      <div class="et-section">
         <div class="sec-head"><b>Insert field</b>
           <span class="muted" style="font-size:12px">into <b id="cfgInsertTarget">Body</b> — click a chip. Candidate columns load live from the database.</span>
         </div>
@@ -206,10 +195,7 @@
         </div>
       </div>
 
-      {% if not (me and me.role == 'admin') %}
-      </fieldset>
-      {% endif %}
-      <div class="et-actions"{% if not (me and me.role == 'admin') %} style="display:none"{% endif %}>
+      <div class="et-actions">
         <button class="btn ghost" id="cfgDeleteBtn" style="color:var(--red)" onclick="deleteTemplate()">🗑 Delete</button>
         <span class="spacer"></span>
         <button class="btn" id="cfgSaveBtn" onclick="saveEmailCfg()">Save template</button>
