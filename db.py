@@ -1133,7 +1133,6 @@ class Database:
                   "username, is_approved, password_hash, last_login_at")
     USER_ROLES = ("admin", "hr")
     _USERNAME_RE = re.compile(r"^[A-Za-z._-]{1,50}$")
-    MIN_PASSWORD = 8
 
     @staticmethod
     def _row_to_user(r: Any, with_hash: bool = False) -> dict[str, Any]:
@@ -1183,16 +1182,15 @@ class Database:
         return self.get_user_by_id(user_id)
 
     def change_own_password(self, user_id: int, old_password: str, new_password: str) -> None:
-        """A signed-in user changes their own password: the current one must match.
+        """A signed-in user changes their own password: the current one must match;
+        the new one can be anything except blank.
         Raises ValueError with a message fit for the UI; nothing changes on error."""
         row = self.conn.cursor().execute(
             "SELECT password_hash FROM dbo.users WHERE user_id = ?", int(user_id)).fetchone()
         if not row or not verify_password(old_password or "", row[0]):
             raise ValueError("Your current password is not correct.")
-        if len(new_password or "") < self.MIN_PASSWORD:
-            raise ValueError(f"The new password must be at least {self.MIN_PASSWORD} characters.")
-        if new_password == old_password:
-            raise ValueError("The new password must be different from the current one.")
+        if not new_password:
+            raise ValueError("Please type a new password.")
         self.conn.cursor().execute("UPDATE dbo.users SET password_hash = ? WHERE user_id = ?",
                                    hash_password(new_password), int(user_id))
         self.conn.commit()
@@ -1249,9 +1247,7 @@ class Database:
         username = _s("username", 100) or None
         if username and not self._USERNAME_RE.match(username):
             raise ValueError("Username: 1-50 letters, dots, dashes or underscores.")
-        password = data.get("password") or None          # None/blank = keep the current one
-        if password is not None and len(str(password)) < self.MIN_PASSWORD:
-            raise ValueError(f"Password must be at least {self.MIN_PASSWORD} characters.")
+        password = data.get("password") or None          # None/blank = keep the current one; no other rules
         uid = data.get("user_id")
         uid = int(uid) if uid not in (None, "", 0, "0") else None
         cur = self.conn.cursor()

@@ -25,7 +25,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
 | Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details in Manage users) — **except HR can change their own password** after typing the current one (🔑 Change password box under the profile). An **Admin can edit their own** details and password there, and **Manage users lives on the Admin's /profile** (moved from Email Templates on 2026-10-07). The red logo + "Recruitment" links to the Job Postings page. |
 | Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
-| Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
+| Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. **No strength rules** (any length, may equal the old one) — only not blank, typed twice to match, and HR must give the current one to change it. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
@@ -166,7 +166,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - Auth pages: `/setup`, `/login`, `/logout`; `/register` only redirects to `/login` (self-registration closed).
 - `/profile` (`profile_page`) — GET for everyone (own account); POST Admin only (403 for HR), keeps role/active/approved, blank password keeps the old one; `?saved=1` on success.
   `POST /profile/password` (`profile_password`, any signed-in user; the box is shown to HR) — `old_password`, `new_password`,
-  `confirm_password`; `db.change_own_password` checks the current one, 8+ chars, different from the current; success →
+  `confirm_password`; `db.change_own_password` checks the current one; the new one can be anything but blank; success →
   `/profile?pw=1#password`. Admins change their own password with the New password field instead.
   For Admins the page also holds **👥 Manage users** (`#users`): the users table (edit, reset password, role, Active, ✔ Approve),
   saving through `/api/users` — the code moved here from `email_templates.html`. Saving your own row reloads the page.

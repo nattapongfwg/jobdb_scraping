@@ -52,9 +52,9 @@
       {% if can_edit %}
       <div class="auth-grid">
         <label>New password <span class="muted">(blank = keep)</span>
-          <input type="password" name="password" minlength="8" autocomplete="new-password"></label>
+          <input type="password" name="password" autocomplete="new-password"></label>
         <label>Confirm new password
-          <input type="password" name="confirm" minlength="8" autocomplete="new-password"></label>
+          <input type="password" name="confirm" autocomplete="new-password"></label>
       </div>
       {% endif %}
     </fieldset>
@@ -71,10 +71,10 @@
     <label>Current password
       <input type="password" name="old_password" required autocomplete="current-password"></label>
     <div class="auth-grid">
-      <label>New password <span class="muted">(8+ characters)</span>
-        <input type="password" name="new_password" required minlength="8" autocomplete="new-password"></label>
+      <label>New password
+        <input type="password" name="new_password" required autocomplete="new-password"></label>
       <label>Confirm new password
-        <input type="password" name="confirm_password" required minlength="8" autocomplete="new-password"></label>
+        <input type="password" name="confirm_password" required autocomplete="new-password"></label>
     </div>
     <button class="btn" type="submit">Change password</button>
   </form>
