@@ -1,15 +1,12 @@
-{# Signed-in user + role in the top bar (every page); Admins also get ➕ Create HR
-   and see how many older registrations still wait for approval. #}
+{# Signed-in user + role in the top bar (every page); Admins also see how many older
+   registrations still wait for approval. The menu itself is _nav.html. #}
 {% if me %}
 <div class="who">
   <a class="who-name" href="/profile" title="My profile — {{ me.email }}">👤 {{ me.name }}</a>
   <span class="who-role {{ me.role }}">{{ 'Admin' if me.role == 'admin' else 'HR' }}</span>
-  {% if me.role == 'admin' %}
-  <a class="who-create" href="/users/new" title="Create an HR account">➕ Create HR</a>
-  {% endif %}
   {% if me.role == 'admin' and pending_users %}
   <a class="who-pending" href="/email-templates#users" title="Registrations waiting for your approval">{{ pending_users }} pending</a>
   {% endif %}
-  <a class="who-out" href="/logout">Logout</a>
+  <a class="who-out" href="/logout">🚪 Logout</a>
 </div>
 {% endif %}

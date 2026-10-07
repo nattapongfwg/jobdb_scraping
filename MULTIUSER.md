@@ -198,8 +198,12 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - Test: `debug\eval_templates_test.py` (fills every form + the default).
 
 ### Templates / static
-- `login.html`, `create_hr.html`, `profile.html`, `setup.html`, `_account_fields.html`, `_who.html` (name → /profile; Admin: **➕ Create HR** link).
+- `login.html`, `create_hr.html`, `profile.html`, `setup.html`, `_account_fields.html`, `_who.html` (name → /profile, role, 🚪 Logout).
 - Every page's top bar: the brand is `<a class="brand" href="/">` (logo + "Recruitment" → Job Postings).
+- **Main menu = `templates/_nav.html`**, included in every signed-in page's top bar: 💼 Job Postings · 📊 Status Tracking ·
+  📝 Requests · ✉️ Email Templates · ➕ Create HR (Admin only). The active item comes from `request.path`
+  (`/job/…` → Job Postings, `/request` → Requests). The old buttons on the Job Postings page are gone. Below 1240 px
+  the menu moves to its own row. Logout shows 🚪. Browser check: `debug\ui_nav.py` (Admin + HR at 1700/1300/1100 px).
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
   **➕ Add Candidate** toolbar on the Pending stage (shown even when Pending is empty) → `#addModal`
   (`openAddModal / confirmAdd`, `FormData` upload; after a successful add the list reloads, the new

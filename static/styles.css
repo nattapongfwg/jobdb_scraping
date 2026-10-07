@@ -78,9 +78,6 @@ a { color: inherit; text-decoration: none; }
   padding: 2px 9px; border-radius: 20px; text-decoration: none; }
 .topbar .who-out { color: var(--ink-soft); text-decoration: none; border: 1px solid var(--line); padding: 4px 10px; border-radius: 8px; }
 .topbar .who-out:hover { color: var(--ink); border-color: var(--blue); }
-.topbar .who-create { color: var(--blue); text-decoration: none; border: 1px solid var(--blue); padding: 4px 10px;
-  border-radius: 8px; font-size: 13px; white-space: nowrap; }
-.topbar .who-create:hover { background: var(--blue); color: #fff; }
 /* sign-in / Create HR / first-run setup */
 .auth-wrap { display: flex; justify-content: center; padding: 48px 16px 80px; }
 .auth-card { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line);
@@ -108,6 +105,15 @@ fieldset.profile-fields:disabled input { color: var(--ink); opacity: 1; -webkit-
   border: 1px solid transparent;
 }
 .topbar nav a:hover { color: var(--ink); background: var(--panel-2); }
+.topbar nav a { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none; }
+.topbar nav .nav-ic { font-size: 15px; line-height: 1; }
+.topbar .who-out { white-space: nowrap; }
+.topbar .who-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+/* not enough room for logo + menu + user on one line → the menu gets its own row */
+@media (max-width: 1240px) {
+  .topbar { flex-wrap: wrap; row-gap: 6px; }
+  .topbar nav.main-nav { order: 3; width: 100%; justify-content: center; flex-wrap: wrap; }
+}
 .topbar nav a.active { color: var(--blue); background: var(--panel-2); border-color: var(--line); }
 
 /* ---- layout ---- */

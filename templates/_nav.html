@@ -1,0 +1,12 @@
+{# Main menu in the top bar (every signed-in page). The current page is highlighted
+   from the URL; a job's pipeline counts as Job Postings, the request form as Requests. #}
+{% set p = request.path %}
+<nav class="main-nav">
+  <a href="/"{% if p == '/' or p.startswith('/job/') %} class="active"{% endif %}><span class="nav-ic">💼</span>Job Postings</a>
+  <a href="/tracking"{% if p == '/tracking' %} class="active"{% endif %}><span class="nav-ic">📊</span>Status Tracking</a>
+  <a href="/requests"{% if p in ('/requests', '/request') %} class="active"{% endif %}><span class="nav-ic">📝</span>Requests</a>
+  <a href="/email-templates"{% if p == '/email-templates' %} class="active"{% endif %}><span class="nav-ic">✉️</span>Email Templates</a>
+  {% if me and me.role == 'admin' %}
+  <a href="/users/new"{% if p == '/users/new' %} class="active"{% endif %}><span class="nav-ic">➕</span>Create HR</a>
+  {% endif %}
+</nav>
