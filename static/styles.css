@@ -77,7 +77,10 @@ a { color: inherit; text-decoration: none; }
   padding: 2px 9px; border-radius: 20px; text-decoration: none; }
 .topbar .who-out { color: var(--ink-soft); text-decoration: none; border: 1px solid var(--line); padding: 4px 10px; border-radius: 8px; }
 .topbar .who-out:hover { color: var(--ink); border-color: var(--blue); }
-/* sign-in / register / first-run setup */
+.topbar .who-create { color: var(--blue); text-decoration: none; border: 1px solid var(--blue); padding: 4px 10px;
+  border-radius: 8px; font-size: 13px; white-space: nowrap; }
+.topbar .who-create:hover { background: var(--blue); color: #fff; }
+/* sign-in / Create HR / first-run setup */
 .auth-wrap { display: flex; justify-content: center; padding: 48px 16px 80px; }
 .auth-card { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line);
   border-radius: 14px; padding: 28px; box-shadow: var(--shadow); }
@@ -91,6 +94,7 @@ a { color: inherit; text-decoration: none; }
 .auth-error { background: var(--red-bg); color: var(--red); padding: 9px 12px; border-radius: 9px; font-size: 13px; }
 .auth-notice { background: var(--green-bg); color: var(--green); padding: 9px 12px; border-radius: 9px; font-size: 13px; }
 .auth-foot { font-size: 12.5px; margin-top: 14px; }
+.auth-foot a { color: var(--blue); }
 .users-table tr.u-pending td { background: var(--amber-bg); }
 .users-table td.u-status { white-space: nowrap; font-size: 12px; }
 @media (max-width: 720px) { .topbar { flex-wrap: wrap; gap: 8px; } .auth-grid { grid-template-columns: 1fr; } }

@@ -290,7 +290,7 @@ _ACCOUNT_FIELDS = ("name", "firstname", "email", "username", "prefix", "mobile",
 
 
 def _account_form() -> dict:
-    """The account fields posted by /register or /setup (never raises, so the
+    """The account fields posted by /users/new or /setup (never raises, so the
     page can re-show what was typed after a validation error)."""
     form = {k: request.form.get(k, "").strip() for k in _ACCOUNT_FIELDS}
     form["password"] = request.form.get("password", "")
@@ -342,21 +342,32 @@ def logout():
 
 @app.route("/register", methods=["GET", "POST"])
 def register_page():
-    """HR self-registration: creates an HR account that an Admin must approve
-    before it can sign in."""
+    """Self-registration is closed — an Admin creates HR accounts (/users/new).
+    Old links land on the sign-in page with a note."""
+    return redirect(url_for("login_page",
+                            notice="Accounts are created by an Admin. Ask an Admin for "
+                                   "your username and password."))
+
+
+@app.route("/users/new", methods=["GET", "POST"])
+@admin_required
+def create_hr_page():
+    """Admin: create an HR account (active and approved, so it can sign in at once).
+    Post/redirect/get: success comes back as ?created=<username>."""
     form: dict = {}
     if request.method == "POST":
         form = _account_form()
         try:
             _check_passwords(form)
+            if not form["username"] or not form["password"]:
+                raise ValueError("Username and password are required.")
             with Database(cfg) as db:
-                db.register_user(form)
+                user = db.save_user({**form, "role": "hr", "is_active": True, "is_approved": True})
         except ValueError as exc:
-            return render_template("register.html", error=str(exc), form=form), 400
-        return redirect(url_for("login_page",
-                                notice="Registered. An Admin will approve your account; "
-                                       "you can sign in once that is done."))
-    return render_template("register.html", form=form)
+            return render_template("create_hr.html", error=str(exc), form=form), 400
+        logging.info("HR account %s created by %s", user["username"], _current_email())
+        return redirect(url_for("create_hr_page", created=user["username"]))
+    return render_template("create_hr.html", form=form, created=request.args.get("created"))
 
 
 @app.route("/setup", methods=["GET", "POST"])

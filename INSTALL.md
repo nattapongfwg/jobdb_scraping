@@ -133,14 +133,14 @@ PC that points at the same database shares them.
 - **First run:** opening the board sends you to `/setup` to create the **Admin**
   account (username, password, signature details). It is pre-filled from the built-in
   recruiter defaults.
-- **HR colleagues** register themselves at `/register`. Their account is *Pending
-  approval* until an Admin approves it (Email Templates page → **Manage users**, or
-  the "N pending" link in the top bar). The details they enter become their email
-  signature and mail-folder prefix.
+- **HR accounts** are created by an Admin with **➕ Create HR** in the top bar
+  (`/users/new`); there is no self-registration. The account can sign in straight away.
+  The details entered become the colleague's email signature and mail-folder prefix.
+  Edit, reset a password or deactivate under Email Templates → **Manage users**.
 - **Roles:** *Admin* = everything, including scraping from SEEK, the Recruit mailbox
-  sign-in, editing email templates and managing users. *HR* = the whole pipeline
-  (candidates, exams, shortlists, interviews, evaluations, offers) but read-only
-  templates and no scraping.
+  sign-in, creating HR accounts and managing users. *HR* = the whole pipeline
+  (candidates, exams, shortlists, interviews, evaluations, offers) and email templates,
+  but no scraping, mailbox sign-in or user management.
 - **Passwords** are stored as salted SHA-256 hashes. An Admin resets one by typing a
   new password on the user's row in Manage users. Deactivating a user signs them out.
 - Sessions are signed with `.secret_key` (created automatically next to `webapp.py`,

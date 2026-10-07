@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create HR account — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="logo"></span> Recruitment</div>
+  <nav>
+    <a href="/">Job Postings</a>
+    <a href="/tracking">Status Tracking</a>
+  </nav>
+  {% include "_who.html" %}
+</div>
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="/users/new" autocomplete="off">
+    <h1 class="page-title">Create <span class="accent">HR account</span></h1>
+    <p class="page-sub" style="margin-top:0">Admin only. The account can sign in straight away — give your
+      colleague the username and password. Their details become their email signature.</p>
+    {% if created %}<p class="auth-notice">✔ Created HR account <b>{{ created }}</b>. They can sign in now.</p>{% endif %}
+    {% if error %}<p class="auth-error">{{ error }}</p>{% endif %}
+    {% include "_account_fields.html" %}
+    <button class="btn" type="submit">Create HR account</button>
+    <p class="muted auth-foot">To edit, reset a password or deactivate an account, use
+      <a href="/email-templates#users">Manage users</a>.</p>
+  </form>
+</div>
+</body>
+</html>

@@ -22,7 +22,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 |---|---|
 | Who sees what | **Everyone sees and can act on every candidate.** The "owner" is a label, not a lock. |
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
-| Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. HR **registers** a username; an **Admin approves** before they can sign in. |
+| Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
@@ -75,7 +75,7 @@ tables appear automatically) and seeds one Admin row if the `users` table is emp
 
 - **First visit** goes to `/setup` to create the Admin account, pre-filled from the seeded
   row. After that `/setup` is closed and `/login` is used.
-- **HR colleagues** register at `/register`; they appear as *Pending approval* in
+- **HR colleagues:** the Admin creates them with **➕ Create HR** (top bar → `/users/new`). Older self-registrations still appear as *Pending approval* in
   Email Templates → **Manage users** (also reachable via the "N pending" link in the top
   bar). Approve them there.
 - **Reset to first-run** (to see `/setup` again):
@@ -98,7 +98,8 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_users_test.py` | users API, duplicate checks, signature follows the current user |
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
-| `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
+| `phase3_auth_test.py` | setup, `/register` closed, Admin creates HR at `/users/new` (mismatch / duplicate / 403 for HR), 401/403 rules, reset, deactivate (39 checks) |
+| `ui_create_hr.py` | **browser check**: login page (no Register link), ➕ Create HR from the top bar, error + success, the new HR signs in; screenshots, cleans up |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
 | `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413, phone stored as `xxx-xxx-xxxx`, bad phone 400 (28 checks) |
 | `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, tries bad first name / e-mail / phone (inline errors), types `+66 …` into Phone, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
@@ -143,7 +144,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   (name copied into both `full_name_jobdb` and `full_name_edit`; the typed Expect salary also fills
   `expect_salary` so the 💰 pill and salary sort work) and logs `added`; `find_duplicate_candidate`
   (same e-mail or same normalised name within the job); `set_resume`; `delete_candidate` (rollback only).
-- Users: `list_users, get_user_by_id/username/prefix/email, save_user (validates, hashes password), register_user (pending HR), approve_user, touch_login, count_pending_users, admin_has_password, first_admin_without_password, seed_default_user`.
+- Users: `list_users, get_user_by_id/username/prefix/email, save_user (validates, hashes password), approve_user, touch_login, count_pending_users, admin_has_password, first_admin_without_password, seed_default_user`.
 - `hash_password / verify_password` — salted SHA-256.
 - `load_email_templates / save_email_templates` — the store behind `email_kit.templates`.
 - `insert_request(..., actor)` records the creator. `update_request(..., actor, revision)` records the
@@ -157,7 +158,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
 - `@before_request _require_login` — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
 - `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
-- Auth pages: `/setup`, `/login`, `/logout`, `/register`.
+- Auth pages: `/setup`, `/login`, `/logout`; `/register` only redirects to `/login` (self-registration closed).
+- `/users/new` (Admin, `create_hr_page`) — Create HR form (`create_hr.html`, reuses `_account_fields.html`); saves an active, approved HR user and redirects back with `?created=<username>`.
 - New APIs: `POST /api/candidates/owner`, `GET /api/candidates/history?application_id=`, `GET/POST /api/users`, `POST /api/users/<id>/approve`.
 - `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
   `{"conflict": true, "error": "<name> saved this request at <time> …"}` when a teammate saved
@@ -191,7 +193,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - Test: `debug\eval_templates_test.py` (fills every form + the default).
 
 ### Templates / static
-- `login.html`, `register.html`, `setup.html`, `_account_fields.html`, `_who.html`.
+- `login.html`, `create_hr.html`, `setup.html`, `_account_fields.html`, `_who.html` (Admin: **➕ Create HR** link).
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
   **➕ Add Candidate** toolbar on the Pending stage (shown even when Pending is empty) → `#addModal`
   (`openAddModal / confirmAdd`, `FormData` upload; after a successful add the list reloads, the new

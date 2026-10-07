@@ -1175,15 +1175,6 @@ class Database:
             "AND password_hash IS NULL ORDER BY user_id").fetchone()
         return self._row_to_user(r) if r else None
 
-    def register_user(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Self-registration: an HR account that cannot sign in until an Admin
-        approves it. Username and password are required here."""
-        if not str(data.get("username") or "").strip():
-            raise ValueError("Please choose a username.")
-        if not data.get("password"):
-            raise ValueError("Please choose a password.")
-        return self.save_user({**data, "role": "hr", "is_active": True, "is_approved": False})
-
     def approve_user(self, user_id: int, by_email: str | None) -> dict[str, Any] | None:
         cur = self.conn.cursor()
         cur.execute(f"UPDATE dbo.users SET is_approved = 1, approved_by = ?, approved_at = {THAI_NOW} "
@@ -1227,7 +1218,7 @@ class Database:
         fit for the UI when a required field is missing or email/prefix/username
         clash with another user. `password` (optional) is hashed; blank keeps the
         current one. `is_approved` defaults to True (Admin-created users can sign
-        in at once); register_user passes False. Returns the saved row."""
+        in at once). Returns the saved row."""
         def _s(k: str, n: int) -> str:
             return str(data.get(k) or "").strip()[:n]
         def _b(k: str, default: bool) -> int:

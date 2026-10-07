@@ -1,9 +1,9 @@
-{# Shared fields for /register and /setup. `form` holds the values to re-show. #}
+{# Shared fields for /users/new (Create HR) and /setup. `form` holds the values to re-show. #}
 <div class="auth-grid">
   <label>Full name (email signature)
-    <input name="name" value="{{ form.name or '' }}" required placeholder="Nattapong Yuwasirinun (นะ)"></label>
+    <input name="name" value="{{ form.name or '' }}" required placeholder="e.g. Somchai Jaidee (ชัย)"></label>
   <label>First name
-    <input name="firstname" value="{{ form.firstname or '' }}" placeholder="Nattapong"></label>
+    <input name="firstname" value="{{ form.firstname or '' }}" placeholder="e.g. Somchai"></label>
 </div>
 <label>Work email
   <input type="email" name="email" value="{{ form.email or '' }}" required placeholder="name@freewillsolutions.com"></label>
@@ -12,7 +12,7 @@
     <input name="username" value="{{ form.username or '' }}" required autocomplete="username"
            pattern="[A-Za-z0-9._-]{3,50}" title="3-50 letters, digits, dots, dashes or underscores"></label>
   <label>Folder prefix <span class="muted">(mail folders, e.g. Na)</span>
-    <input name="prefix" value="{{ form.prefix or '' }}" required maxlength="20" placeholder="Na"></label>
+    <input name="prefix" value="{{ form.prefix or '' }}" required maxlength="20" placeholder="e.g. Sc"></label>
 </div>
 <div class="auth-grid">
   <label>Password <span class="muted">(8+ characters)</span>
