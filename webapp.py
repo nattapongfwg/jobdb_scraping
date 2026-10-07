@@ -370,6 +370,30 @@ def create_hr_page():
     return render_template("create_hr.html", form=form, created=request.args.get("created"))
 
 
+@app.route("/profile", methods=["GET", "POST"])
+def profile_page():
+    """The signed-in user's own account. Everyone can view it; HR is view-only
+    (an Admin changes their details or resets their password in Manage users).
+    An Admin can edit their own details and password here; role, active and
+    approved stay as they are. Post/redirect/get: success comes back as ?saved=1."""
+    me = current_user()
+    if request.method == "POST":
+        if not _is_admin():
+            abort(403)
+        form = _account_form()
+        try:
+            _check_passwords(form)
+            if not form["username"]:
+                raise ValueError("Username is required — you sign in with it.")
+            with Database(cfg) as db:
+                db.save_user({**me, **form, "user_id": me["user_id"], "role": me["role"],
+                              "is_active": True, "is_approved": True})
+        except ValueError as exc:
+            return render_template("profile.html", error=str(exc), form=form), 400
+        return redirect(url_for("profile_page", saved=1))
+    return render_template("profile.html", form=me, saved=request.args.get("saved"))
+
+
 @app.route("/setup", methods=["GET", "POST"])
 def setup_page():
     """First run only: turn the seeded Admin row into a real account (username +

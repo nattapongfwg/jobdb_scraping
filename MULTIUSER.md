@@ -23,6 +23,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Who sees what | **Everyone sees and can act on every candidate.** The "owner" is a label, not a lock. |
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
+| Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details / passwords in Manage users). An **Admin can edit their own** details and password there. The red logo + "Recruitment" links to the Job Postings page. |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
@@ -100,6 +101,8 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_owner_test.py` | owner claim on first move, reassign, history order and actors |
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, `/register` closed, Admin creates HR at `/users/new` (mismatch / duplicate / 403 for HR), 401/403 rules, reset, deactivate (39 checks) |
+| `profile_test.py` | /profile: HR view-only (disabled fields, POST 403), Admin edits own details / password (mismatch, duplicate prefix, blank keeps), logo → / and name → /profile on every page (17 checks) |
+| `ui_profile.py` | **browser check**: /profile as HR and as Admin (screenshots), logo click lands on / |
 | `ui_create_hr.py` | **browser check**: login page (no Register link), ➕ Create HR from the top bar, error + success, the new HR signs in; screenshots, cleans up |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
 | `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413, phone stored as `xxx-xxx-xxxx`, bad phone 400 (28 checks) |
@@ -160,6 +163,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `@before_request _require_login` — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
 - `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
 - Auth pages: `/setup`, `/login`, `/logout`; `/register` only redirects to `/login` (self-registration closed).
+- `/profile` (`profile_page`) — GET for everyone (own account); POST Admin only (403 for HR), keeps role/active/approved, blank password keeps the old one; `?saved=1` on success.
 - `/users/new` (Admin, `create_hr_page`) — Create HR form (`create_hr.html`, reuses `_account_fields.html`); saves an active, approved HR user and redirects back with `?created=<username>`.
 - New APIs: `POST /api/candidates/owner`, `GET /api/candidates/history?application_id=`, `GET/POST /api/users`, `POST /api/users/<id>/approve`.
 - `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
@@ -194,7 +198,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - Test: `debug\eval_templates_test.py` (fills every form + the default).
 
 ### Templates / static
-- `login.html`, `create_hr.html`, `setup.html`, `_account_fields.html`, `_who.html` (Admin: **➕ Create HR** link).
+- `login.html`, `create_hr.html`, `profile.html`, `setup.html`, `_account_fields.html`, `_who.html` (name → /profile; Admin: **➕ Create HR** link).
+- Every page's top bar: the brand is `<a class="brand" href="/">` (logo + "Recruitment" → Job Postings).
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
   **➕ Add Candidate** toolbar on the Pending stage (shown even when Pending is empty) → `#addModal`
   (`openAddModal / confirmAdd`, `FormData` upload; after a successful add the list reloads, the new

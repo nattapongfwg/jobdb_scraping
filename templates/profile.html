@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My profile — Recruitment</title>
+<link rel="icon" type="image/png" href="/static/profile.png">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="topbar">
+  <a class="brand" href="/" title="Job Postings"><span class="logo"></span> Recruitment</a>
+  <nav>
+    <a href="/">Job Postings</a>
+    <a href="/tracking">Status Tracking</a>
+  </nav>
+  {% include "_who.html" %}
+</div>
+{% set can_edit = me.role == 'admin' %}
+<div class="auth-wrap">
+  <form class="auth-card" method="post" action="/profile" autocomplete="off">
+    <h1 class="page-title">My <span class="accent">profile</span></h1>
+    <p class="page-sub" style="margin-top:0">
+      <span class="who-role {{ me.role }}">{{ 'Admin' if me.role == 'admin' else 'HR' }}</span>
+      {% if me.last_login_at %}<span class="muted">· last sign-in {{ me.last_login_at }}</span>{% endif %}<br>
+      Your name, mobile and tel are your email signature; sent exams and drafts go to your
+      folder-prefix mail folders.</p>
+    {% if saved %}<p class="auth-notice">✔ Profile saved.</p>{% endif %}
+    {% if error %}<p class="auth-error">{{ error }}</p>{% endif %}
+    {% if not can_edit %}
+    <p class="auth-view-only">🔒 View only — ask an Admin to change your details or reset your password.</p>
+    {% endif %}
+    <fieldset class="profile-fields"{% if not can_edit %} disabled{% endif %}>
+      <div class="auth-grid">
+        <label>Full name (email signature)
+          <input name="name" value="{{ form.name or '' }}" required></label>
+        <label>First name
+          <input name="firstname" value="{{ form.firstname or '' }}"></label>
+      </div>
+      <label>Work email
+        <input type="email" name="email" value="{{ form.email or '' }}" required></label>
+      <div class="auth-grid">
+        <label>Username
+          <input name="username" value="{{ form.username or '' }}" required autocomplete="username"
+                 pattern="[A-Za-z0-9._-]{3,50}" title="3-50 letters, digits, dots, dashes or underscores"></label>
+        <label>Folder prefix <span class="muted">(mail folders)</span>
+          <input name="prefix" value="{{ form.prefix or '' }}" required maxlength="20"></label>
+      </div>
+      <div class="auth-grid">
+        <label>Mobile
+          <input name="mobile" value="{{ form.mobile or '' }}"></label>
+        <label>Tel
+          <input name="tel" value="{{ form.tel or '' }}"></label>
+      </div>
+      {% if can_edit %}
+      <div class="auth-grid">
+        <label>New password <span class="muted">(blank = keep)</span>
+          <input type="password" name="password" minlength="8" autocomplete="new-password"></label>
+        <label>Confirm new password
+          <input type="password" name="confirm" minlength="8" autocomplete="new-password"></label>
+      </div>
+      {% endif %}
+    </fieldset>
+    {% if can_edit %}
+    <button class="btn" type="submit">Save profile</button>
+    {% endif %}
+  </form>
+</div>
+</body>
+</html>

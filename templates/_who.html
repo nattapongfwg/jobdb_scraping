@@ -2,7 +2,7 @@
    and see how many older registrations still wait for approval. #}
 {% if me %}
 <div class="who">
-  <span class="who-name" title="{{ me.email }}">👤 {{ me.name }}</span>
+  <a class="who-name" href="/profile" title="My profile — {{ me.email }}">👤 {{ me.name }}</a>
   <span class="who-role {{ me.role }}">{{ 'Admin' if me.role == 'admin' else 'HR' }}</span>
   {% if me.role == 'admin' %}
   <a class="who-create" href="/users/new" title="Create an HR account">➕ Create HR</a>
