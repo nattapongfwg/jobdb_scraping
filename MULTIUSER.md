@@ -40,7 +40,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Dev database | `jobdb_multiuser` on `localhost\SQLEXPRESS` — a copy-only restore of the live database taken 2026-09-30. Safe to break; re-create with `debug\make_dev_db.py` (drop the DB first). |
 | Dev port | **2777** (`PORT=2777` in the dev `.env`; ports 2756–2760 are taken by other apps on this PC). |
 | Dev `.env` | Non-secret only: DB settings, `PORT`, `ONEDRIVE_BASE=E:\jobdb_multiuser\dev_onedrive`, a dev OneDrive path for shortlists. **No SEEK / Graph / OpenAI secrets** — copy those lines from the live `.env` when you need to test emailing, scraping or AI summaries. |
-| Branches (dev repo) | `master` = same as live. Work is stacked: `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → **`feat/multiuser-phase3-login`** (the tip, check this one out). **Nothing is merged into master or pushed.** |
+| Branches (dev repo) | `master` = same as live. Work is stacked: `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → **`feat/multiuser-phase3-login`** (the tip, check this one out). **Nothing is merged into master.** The tip branch is pushed to GitHub as a backup (2026-10-07); `master` and the live board are unchanged. |
 | Session secret | `.secret_key` (auto-created, gitignored). Deleting it signs everyone out. |
 
 ### Commits on the tip branch (oldest first)
