@@ -60,7 +60,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | `3944e5f` | Evaluation popup — pick a per-team Excel form |
 | `bb3f9aa` | **Add Candidate** by hand on the Pending stage, with a PDF résumé (`source='manual'`) |
 | `e3aba52` | Email templates — HR can create / edit / delete too |
-| `ce0e22e` | Add Candidate form — First / Last name, inline e-mail check, phone typed as `xxx-xxx-xxxx` |
+| `25e7961` | Add Candidate form — First / Last name, inline e-mail check, phone typed as `xxx-xxx-xxxx` |
 
 ---
 
