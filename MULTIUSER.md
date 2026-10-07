@@ -24,6 +24,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
 | Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details in Manage users) — **except HR can change their own password** after typing the current one (🔑 Change password box under the profile). An **Admin can edit their own** details and password there, and **Manage users lives on the Admin's /profile** (moved from Email Templates on 2026-10-07). The red logo + "Recruitment" links to the Job Postings page. |
+| Phone numbers | **Mobile `xxx-xxx-xxxx` (10 digits), Tel `x-xxxx-xxxx` (9 digits)**, digits only, `+66` → `0`. One rule: `phone.py` (server — users' mobile/tel in `db.save_user`, Add Candidate's phone) and `static/phone.js` (browser — `<input data-phone="mobile|tel">` formats while typing and blocks a wrong length). Used on My profile, Create HR, setup and Manage users. Mobile/Tel stay in the DB: they feed the `{signature}` line. |
 | Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. **No strength rules** (any length, may equal the old one) — only not blank, typed twice to match, and HR must give the current one to change it. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
@@ -111,6 +112,7 @@ They hit the **dev** database only and clean up after themselves.
 | `ui_tracking_stages.py` | **browser check**: Status Tracking Stage multi-select — counts match the DB, button text, remembered after reload, Escape / outside click, Clear filters, Select all (13 checks) |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
+| `ui_phone_fields.py` | **browser check**: Mobile/Tel format while typing (profile, Manage users row, `+66`), a wrong length blocks Create HR |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
 
 **Known stale tests (2026-09-30):** `phase2_users_test.py`, `phase2_owner_test.py` and

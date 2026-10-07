@@ -6,6 +6,7 @@
 <title>My profile — Recruitment</title>
 <link rel="icon" type="image/png" href="/static/profile.png">
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<script src="{{ url_for('static', filename='phone.js') }}"></script>
 </head>
 <body>
 <div class="topbar">
@@ -45,9 +46,9 @@
       </div>
       <div class="auth-grid">
         <label>Mobile
-          <input name="mobile" value="{{ form.mobile or '' }}"></label>
+          <input type="tel" name="mobile" data-phone="mobile" value="{{ form.mobile or '' }}" placeholder="081-234-5678"></label>
         <label>Tel
-          <input name="tel" value="{{ form.tel or '' }}"></label>
+          <input type="tel" name="tel" data-phone="tel" value="{{ form.tel or '' }}" placeholder="0-2034-4147"></label>
       </div>
       {% if can_edit %}
       <div class="auth-grid">
@@ -128,8 +129,11 @@ async function loadUsers(){
   } catch(e){ toast("Could not load users: "+e, 6000); }
 }
 function userRowHtml(u, i){
-  const f = (k, ph, type="text", val) =>
-    `<input type="${type}" data-k="${k}" value="${escH(val ?? u[k])}" placeholder="${ph}"${type==="password"?' autocomplete="new-password"':""}>`;
+  const f = (k, ph, type="text", val) => {
+    const kind = (k === "mobile" || k === "tel") ? k : "";
+    const v = kind ? PhoneFmt.format(u[k], kind) : (val ?? u[k]);
+    return `<input type="${kind ? "tel" : type}" data-k="${k}"${kind ? ` data-phone="${kind}"` : ""} value="${escH(v)}" placeholder="${ph}"${type==="password"?' autocomplete="new-password"':""}>`;
+  };
   const pending = u.user_id && u.is_active && !u.is_approved;
   return `<tr data-i="${i}"${pending?' class="u-pending"':""}>
     <td>${f("name","Full name (signature)")}</td><td>${f("firstname","First name")}</td>
@@ -137,7 +141,7 @@ function userRowHtml(u, i){
     <td>${f("username","username")}</td>
     <td>${f("password", u.has_password ? "(unchanged)" : "set password", "password", "")}</td>
     <td class="u-prefix">${f("prefix","Na")}</td>
-    <td>${f("mobile","0xx-xxx-xxxx")}</td><td>${f("tel","0-xxxx-xxxx")}</td>
+    <td>${f("mobile","081-234-5678")}</td><td>${f("tel","0-2034-4147")}</td>
     <td><select data-k="role"><option value="hr" ${u.role!=="admin"?"selected":""}>HR</option><option value="admin" ${u.role==="admin"?"selected":""}>Admin</option></select></td>
     <td style="text-align:center"><input type="checkbox" data-k="is_active" ${u.is_active!==false?"checked":""}></td>
     <td class="u-status">${escH(statusText(u))}${u.user_id===ME_ID?" (you)":""}</td>

@@ -17,6 +17,8 @@ import logging
 import re
 from typing import Any
 
+import phone
+
 import pyodbc
 
 from config import Config, load_config
@@ -1248,6 +1250,12 @@ class Database:
         if username and not self._USERNAME_RE.match(username):
             raise ValueError("Username: 1-50 letters, dots, dashes or underscores.")
         password = data.get("password") or None          # None/blank = keep the current one; no other rules
+        mobile = phone.normalize(str(data.get("mobile") or ""), "mobile")
+        if mobile is None:
+            raise ValueError("Mobile must be 10 digits (xxx-xxx-xxxx).")
+        tel = phone.normalize(str(data.get("tel") or ""), "tel")
+        if tel is None:
+            raise ValueError("Tel must be 9 digits (x-xxxx-xxxx).")
         uid = data.get("user_id")
         uid = int(uid) if uid not in (None, "", 0, "0") else None
         cur = self.conn.cursor()
@@ -1259,8 +1267,8 @@ class Database:
             what = ("email" if clash[0] == email else
                     "folder prefix" if clash[1] == prefix else "username")
             raise ValueError(f"Another user already has that {what}.")
-        vals: list[Any] = [email, name, _s("firstname", 100) or None, _s("mobile", 50) or None,
-                           _s("tel", 50) or None, prefix, role, _b("is_active", True), username,
+        vals: list[Any] = [email, name, _s("firstname", 100) or None, mobile or None,
+                           tel or None, prefix, role, _b("is_active", True), username,
                            _b("is_approved", True)]
         pw_set = ", password_hash = ?" if password is not None else ""
         pw_vals = [hash_password(str(password))] if password is not None else []
