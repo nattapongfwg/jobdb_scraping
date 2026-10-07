@@ -14,7 +14,7 @@
   {% include "_who.html" %}
 </div>
 {% set can_edit = me.role == 'admin' %}
-<div class="auth-wrap">
+<div class="auth-wrap{% if can_edit %} profile-wrap{% endif %}">
   <form class="auth-card" method="post" action="/profile" autocomplete="off">
     <h1 class="page-title">My <span class="accent">profile</span></h1>
     <p class="page-sub" style="margin-top:0">
@@ -63,5 +63,105 @@
     {% endif %}
   </form>
 </div>
+
+{% if can_edit %}
+<!-- Manage users (Admin): edit details, reset a password, change role, deactivate,
+     approve an older self-registration. Saves through /api/users (Admin only). -->
+<div class="container full users-wrap" id="users">
+  <div class="card users-card">
+    <div class="users-head">
+      <h2>👥 Manage users</h2>
+      <span id="pendingNote" class="muted"></span>
+      <a class="btn secondary tiny" href="/users/new">➕ Create HR</a>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:4px 0 10px">Edit a row and click <b>Save</b>. Type a new password to
+      reset one; leave it blank to keep it. Untick <b>Active</b> to deactivate (signs them out). Older
+      self-registrations show as <i>Pending approval</i>.</p>
+    <div class="table-wrap">
+      <table class="users-table">
+        <thead><tr><th>Name (signature)</th><th>First name</th><th>Email</th><th>Username</th>
+                   <th>Password</th><th>Prefix</th><th>Mobile</th><th>Tel</th><th>Role</th>
+                   <th>Active</th><th>Status</th><th></th></tr></thead>
+        <tbody id="usersRows"><tr><td colspan="12" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <button class="btn ghost" style="margin-top:8px" onclick="addUserRow()">➕ Add user</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const ME_ID = {{ me.user_id }};
+function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.style.display="block";
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display="none", ms); }
+let cfgUsers = [];
+const escH = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function statusText(u){
+  if(!u.is_active) return "Disabled";
+  if(!u.is_approved) return "Pending approval";
+  return u.has_password ? "Active" : "No password yet";
+}
+async function loadUsers(){
+  try {
+    const r = await (await fetch("/api/users")).json();
+    cfgUsers = r.users || [];
+    const pend = cfgUsers.filter(u => !u.is_approved && u.is_active).length;
+    $("#pendingNote").textContent = pend ? `${pend} registration${pend!==1?"s":""} waiting for approval` : "";
+    renderUsersTable();
+  } catch(e){ toast("Could not load users: "+e, 6000); }
+}
+function userRowHtml(u, i){
+  const f = (k, ph, type="text", val) =>
+    `<input type="${type}" data-k="${k}" value="${escH(val ?? u[k])}" placeholder="${ph}"${type==="password"?' autocomplete="new-password"':""}>`;
+  const pending = u.user_id && u.is_active && !u.is_approved;
+  return `<tr data-i="${i}"${pending?' class="u-pending"':""}>
+    <td>${f("name","Full name (signature)")}</td><td>${f("firstname","First name")}</td>
+    <td>${f("email","name@freewillsolutions.com","email")}</td>
+    <td>${f("username","username")}</td>
+    <td>${f("password", u.has_password ? "(unchanged)" : "set password", "password", "")}</td>
+    <td class="u-prefix">${f("prefix","Na")}</td>
+    <td>${f("mobile","0xx-xxx-xxxx")}</td><td>${f("tel","0-xxxx-xxxx")}</td>
+    <td><select data-k="role"><option value="hr" ${u.role!=="admin"?"selected":""}>HR</option><option value="admin" ${u.role==="admin"?"selected":""}>Admin</option></select></td>
+    <td style="text-align:center"><input type="checkbox" data-k="is_active" ${u.is_active!==false?"checked":""}></td>
+    <td class="u-status">${escH(statusText(u))}${u.user_id===ME_ID?" (you)":""}</td>
+    <td class="u-act">${pending?`<button class="btn tiny" onclick="approveUser(${u.user_id})">✔ Approve</button> `:""}<button class="btn tiny secondary" onclick="saveUserRow(${i})">${u.user_id?"Save":"Add"}</button></td></tr>`;
+}
+function renderUsersTable(){
+  $("#usersRows").innerHTML = cfgUsers.map(userRowHtml).join("") ||
+    `<tr><td colspan="12" class="muted">No users yet — add the first one below.</td></tr>`;
+}
+function addUserRow(){
+  if(cfgUsers.some(u => !u.user_id)) return;   // one blank row at a time
+  cfgUsers.push({user_id:null, name:"", firstname:"", email:"", username:"", prefix:"", mobile:"", tel:"", role:"hr", is_active:true, is_approved:true, has_password:false});
+  renderUsersTable();
+  const last = $("#usersRows").lastElementChild; if(last) last.querySelector("input").focus();
+}
+async function saveUserRow(i){
+  const tr = $("#usersRows").querySelector(`tr[data-i="${i}"]`); if(!tr) return;
+  const body = {user_id: cfgUsers[i].user_id, is_approved: cfgUsers[i].user_id ? cfgUsers[i].is_approved : true};
+  tr.querySelectorAll("[data-k]").forEach(el => { body[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
+  if(!body.password) delete body.password;      // blank = keep the current password
+  const btn = tr.querySelector(".u-act .secondary"); btn.disabled = true;
+  try {
+    const r = await (await fetch("/api/users", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)})).json();
+    if(!r.ok) throw new Error(r.error || "save failed");
+    if(r.user.user_id === ME_ID){ location.reload(); return; }   // your own row → refresh the profile card above
+    toast(`Saved ${r.user.name}.`, 2500);
+    await loadUsers();
+  } catch(e){ toast("Could not save user: "+e.message, 6000); btn.disabled = false; }
+}
+async function approveUser(id){
+  try {
+    const r = await (await fetch(`/api/users/${id}/approve`, {method:"POST"})).json();
+    if(!r.ok) throw new Error(r.error || "approve failed");
+    toast(`${r.user.name} can now sign in.`, 3000);
+    await loadUsers();
+  } catch(e){ toast("Could not approve: "+e.message, 6000); }
+}
+loadUsers();
+window.addUserRow = addUserRow; window.saveUserRow = saveUserRow; window.approveUser = approveUser;
+</script>
+{% endif %}
 </body>
 </html>

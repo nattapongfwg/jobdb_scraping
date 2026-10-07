@@ -23,7 +23,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Who sees what | **Everyone sees and can act on every candidate.** The "owner" is a label, not a lock. |
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
-| Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details / passwords in Manage users). An **Admin can edit their own** details and password there. The red logo + "Recruitment" links to the Job Postings page. |
+| Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details / passwords in Manage users). An **Admin can edit their own** details and password there, and **Manage users lives on the Admin's /profile** (moved from Email Templates on 2026-10-07). The red logo + "Recruitment" links to the Job Postings page. |
 | Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
@@ -78,7 +78,7 @@ tables appear automatically) and seeds one Admin row if the `users` table is emp
 - **First visit** goes to `/setup` to create the Admin account, pre-filled from the seeded
   row. After that `/setup` is closed and `/login` is used.
 - **HR colleagues:** the Admin creates them with **➕ Create HR** (top bar → `/users/new`). Older self-registrations still appear as *Pending approval* in
-  Email Templates → **Manage users** (also reachable via the "N pending" link in the top
+  My profile → **Manage users** (`/profile#users`; also reachable via the "N pending" link in the top
   bar). Approve them there.
 - **Reset to first-run** (to see `/setup` again):
   `UPDATE dbo.users SET password_hash = NULL WHERE role = 'admin';`
@@ -165,6 +165,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
 - Auth pages: `/setup`, `/login`, `/logout`; `/register` only redirects to `/login` (self-registration closed).
 - `/profile` (`profile_page`) — GET for everyone (own account); POST Admin only (403 for HR), keeps role/active/approved, blank password keeps the old one; `?saved=1` on success.
+  For Admins the page also holds **👥 Manage users** (`#users`): the users table (edit, reset password, role, Active, ✔ Approve),
+  saving through `/api/users` — the code moved here from `email_templates.html`. Saving your own row reloads the page.
+  Browser check: `debug\ui_manage_users.py`.
 - `/users/new` (Admin, `create_hr_page`) — Create HR form (`create_hr.html`, reuses `_account_fields.html`); saves an active, approved HR user and redirects back with `?created=<username>`.
 - New APIs: `POST /api/candidates/owner`, `GET /api/candidates/history?application_id=`, `GET/POST /api/users`, `POST /api/users/<id>/approve`.
 - `POST /api/requests/<id>` takes `revision` (the one the form loaded) and answers **409**
@@ -219,7 +222,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**
   (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
 - `email_templates.html` — users manager (Admin). The template editor is the same for Admin and HR
-  (create / edit / delete); only the mailbox sign-in button (`CAN_SIGN_IN`) and Manage users are Admin-only.
+  (create / edit / delete); only the mailbox sign-in button (`CAN_SIGN_IN`) is Admin-only. The page keeps a server-rendered "Signed in as … · folders" line (Admins get a 👥 Manage users link to `/profile#users`).
 - `requests.html` — **Doing / Completed tabs** (with counts; `#completed` in the URL opens that tab),
   **✔ Complete** beside Edit on Doing, **↩ Reopen** + a Completed (who/when) column on Completed;
   **Created by** / **Last edited** columns. `request.html` — the same on top of

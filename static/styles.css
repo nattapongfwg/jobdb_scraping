@@ -97,7 +97,27 @@ a { color: inherit; text-decoration: none; }
 fieldset.profile-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 fieldset.profile-fields:disabled input { color: var(--ink); opacity: 1; -webkit-text-fill-color: var(--ink); cursor: default;
   background: var(--panel); border-style: dashed; }
+.users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.users-table th, .users-table td { padding: 4px 6px; text-align: left; vertical-align: middle; }
+.users-table th { font-weight: 600; opacity: .75; }
+.users-table input, .users-table select { width: 100%; min-width: 64px; box-sizing: border-box; }
+.users-table input[type=checkbox] { width: auto; min-width: 0; }
+.users-table td.u-prefix input { max-width: 70px; }
+.users-table td.u-act { white-space: nowrap; }
 .users-table tr.u-pending td { background: var(--amber-bg); }
+/* Manage users (Admin) on My profile */
+.users-wrap { padding-top: 0; }
+.auth-wrap.profile-wrap { padding-bottom: 24px; }
+.users-table input:not([type=checkbox]), .users-table select {
+  padding: 6px 8px; min-width: 64px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--bg-2); color: var(--ink); font: inherit; font-size: 13px; }
+.users-table select { min-width: 72px; }
+.users-table input:focus, .users-table select:focus { outline: none; border-color: var(--blue); }
+.users-table thead th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.users-card { padding: 18px 20px; }
+.users-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.users-head h2 { margin: 0; font-size: 18px; }
+.users-head .btn { margin-left: auto; }
 .users-table td.u-status { white-space: nowrap; font-size: 12px; }
 @media (max-width: 720px) { .topbar { flex-wrap: wrap; gap: 8px; } .auth-grid { grid-template-columns: 1fr; } }
 .topbar nav a {

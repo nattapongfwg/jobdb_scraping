@@ -5,7 +5,7 @@
   <a class="who-name" href="/profile" title="My profile — {{ me.email }}">👤 {{ me.name }}</a>
   <span class="who-role {{ me.role }}">{{ 'Admin' if me.role == 'admin' else 'HR' }}</span>
   {% if me.role == 'admin' and pending_users %}
-  <a class="who-pending" href="/email-templates#users" title="Registrations waiting for your approval">{{ pending_users }} pending</a>
+  <a class="who-pending" href="/profile#users" title="Registrations waiting for your approval">{{ pending_users }} pending</a>
   {% endif %}
   <a class="who-out" href="/logout">🚪 Logout</a>
 </div>

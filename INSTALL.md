@@ -136,7 +136,7 @@ PC that points at the same database shares them.
 - **HR accounts** are created by an Admin with **➕ Create HR** in the top bar
   (`/users/new`); there is no self-registration. The account can sign in straight away.
   The details entered become the colleague's email signature and mail-folder prefix.
-  Edit, reset a password or deactivate under Email Templates → **Manage users**.
+  Edit, reset a password or deactivate under **My profile** (click your name) → **Manage users**.
 - **Roles:** *Admin* = everything, including scraping from SEEK, the Recruit mailbox
   sign-in, creating HR accounts and managing users. *HR* = the whole pipeline
   (candidates, exams, shortlists, interviews, evaluations, offers) and email templates,

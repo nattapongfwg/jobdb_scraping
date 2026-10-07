@@ -60,13 +60,6 @@
   .et-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px;
                 border-top: 1px solid var(--line-soft); padding-top: 18px; }
   .et-actions .spacer { margin-right: auto; }
-  .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .users-table th, .users-table td { padding: 4px 6px; text-align: left; vertical-align: middle; }
-  .users-table th { font-weight: 600; opacity: .75; }
-  .users-table input, .users-table select { width: 100%; min-width: 64px; box-sizing: border-box; }
-  .users-table input[type=checkbox] { width: auto; min-width: 0; }
-  .users-table td.u-prefix input { max-width: 70px; }
-  .users-table td.u-act { white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -96,30 +89,13 @@
       3. Sign in as the shared <b>Recruit</b> mailbox — <span class="muted">waiting for you to finish…</span>
     </div>
 
-    <!-- Signed-in user (signs the emails; sent exams / drafts go to <prefix>_Sent_Exam
-         and <prefix>_Drafts). Admins manage accounts here: approve HR registrations,
-         add/edit users, reset passwords, deactivate. -->
-    <div id="users" style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.12)">
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px">
-        <span>Signed in as <b id="whoText"></b></span>
-        {% if me and me.role == 'admin' %}
-        <button class="btn secondary" onclick="toggleUsers()">👥 Manage users</button>
-        <span id="pendingNote" class="muted" style="font-size:12px"></span>
-        {% endif %}
-      </div>
-      {% if me and me.role == 'admin' %}
-      <div id="usersBox" style="display:none;margin-top:12px">
-        <p class="muted" style="font-size:12px;margin:0 0 6px">Create HR accounts with <b>➕ Create HR</b> in the top bar.
-          Older self-registrations still show here as <i>Pending approval</i>. Type a new password to reset one; leave it blank to keep it.</p>
-        <table class="users-table">
-          <thead><tr><th>Name (signature)</th><th>First name</th><th>Email</th><th>Username</th>
-                     <th>Password</th><th>Prefix</th><th>Mobile</th><th>Tel</th><th>Role</th>
-                     <th>Active</th><th>Status</th><th></th></tr></thead>
-          <tbody id="usersRows"></tbody>
-        </table>
-        <button class="btn ghost" style="margin-top:6px" onclick="addUserRow()">➕ Add user</button>
-      </div>
-      {% endif %}
+    {# Signed-in user: signs the emails; sent exams / drafts go to <prefix>_Sent_Exam and
+       <prefix>_Drafts. Admins manage accounts on My profile (/profile#users). #}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.12);font-size:13px">
+      Signed in as <b>{{ me.name }}</b> — {{ 'Admin' if me.role == 'admin' else 'HR' }} · folders
+      {{ me.prefix }}_Sent_Exam / {{ me.prefix }}_Drafts
+      {% if me.role == 'admin' %}· <a href="/profile#users">👥 Manage users</a>{% endif %}
+    </div>
     </div>
   </div>
 
@@ -466,86 +442,6 @@ async function startEmailLogin(){
   finally { $("#emailSignInBtn").disabled = false; }
 }
 
-/* ---- signed-in user + user management (Admin) ---- */
-let cfgUsers = [];
-const IS_ADMIN = {{ 'true' if me and me.role == 'admin' else 'false' }};
-const escH = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const roleName = r => r === "admin" ? "Admin" : "HR";
-function statusText(u){
-  if(!u.is_active) return "Disabled";
-  if(!u.is_approved) return "Pending approval";
-  return u.has_password ? "Active" : "No password yet";
-}
-async function loadUsers(){
-  try {
-    const r = await (await fetch("/api/users")).json();
-    cfgUsers = r.users || [];
-    const cur = r.current;
-    $("#whoText").textContent = cur
-      ? `${cur.name} — ${roleName(cur.role)} · folders ${cur.prefix}_Sent_Exam / ${cur.prefix}_Drafts`
-      : "(not signed in)";
-    const pend = cfgUsers.filter(u => !u.is_approved && u.is_active).length;
-    const note = $("#pendingNote");
-    if(note) note.textContent = pend ? `${pend} registration${pend!==1?"s":""} waiting for approval` : "";
-    const box = $("#usersBox");
-    if(box && box.style.display !== "none") renderUsersTable();
-  } catch(e){ toast("Could not load users: "+e, 6000); }
-}
-function toggleUsers(){
-  const box = $("#usersBox"); if(!box) return;
-  const show = box.style.display === "none";
-  box.style.display = show ? "" : "none";
-  if(show) renderUsersTable();
-}
-function userRowHtml(u, i){
-  const f = (k, ph, type="text", val) =>
-    `<input type="${type}" data-k="${k}" value="${escH(val ?? u[k])}" placeholder="${ph}"${type==="password"?' autocomplete="new-password"':""}>`;
-  const pending = u.user_id && u.is_active && !u.is_approved;
-  return `<tr data-i="${i}"${pending?' class="u-pending"':""}>
-    <td>${f("name","Full name (signature)")}</td><td>${f("firstname","First name")}</td>
-    <td>${f("email","name@freewillsolutions.com","email")}</td>
-    <td>${f("username","username")}</td>
-    <td>${f("password", u.has_password ? "(unchanged)" : "set password", "password", "")}</td>
-    <td class="u-prefix">${f("prefix","Na")}</td>
-    <td>${f("mobile","0xx-xxx-xxxx")}</td><td>${f("tel","0-xxxx-xxxx")}</td>
-    <td><select data-k="role"><option value="hr" ${u.role!=="admin"?"selected":""}>HR</option><option value="admin" ${u.role==="admin"?"selected":""}>Admin</option></select></td>
-    <td style="text-align:center"><input type="checkbox" data-k="is_active" ${u.is_active!==false?"checked":""}></td>
-    <td class="u-status">${escH(statusText(u))}</td>
-    <td class="u-act">${pending?`<button class="btn tiny" onclick="approveUser(${u.user_id})">✔ Approve</button> `:""}<button class="btn tiny secondary" onclick="saveUserRow(${i})">${u.user_id?"Save":"Add"}</button></td></tr>`;
-}
-function renderUsersTable(){
-  $("#usersRows").innerHTML = cfgUsers.map(userRowHtml).join("") ||
-    `<tr><td colspan="12" class="muted">No users yet — add the first one below.</td></tr>`;
-}
-function addUserRow(){
-  if(cfgUsers.some(u => !u.user_id)) return;   // one blank row at a time
-  cfgUsers.push({user_id:null, name:"", firstname:"", email:"", username:"", prefix:"", mobile:"", tel:"", role:"hr", is_active:true, is_approved:true, has_password:false});
-  renderUsersTable();
-  const last = $("#usersRows").lastElementChild; if(last) last.querySelector("input").focus();
-}
-async function saveUserRow(i){
-  const tr = $("#usersRows").querySelector(`tr[data-i="${i}"]`); if(!tr) return;
-  const body = {user_id: cfgUsers[i].user_id, is_approved: cfgUsers[i].user_id ? cfgUsers[i].is_approved : true};
-  tr.querySelectorAll("[data-k]").forEach(el => { body[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
-  if(!body.password) delete body.password;      // blank = keep the current password
-  const btn = tr.querySelector(".u-act .secondary"); btn.disabled = true;
-  try {
-    const r = await (await fetch("/api/users", {method:"POST",
-      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)})).json();
-    if(!r.ok) throw new Error(r.error || "save failed");
-    toast(`Saved ${r.user.name}.`, 2500);
-    await loadUsers(); renderUsersTable();
-  } catch(e){ toast("Could not save user: "+e.message, 6000); btn.disabled = false; }
-}
-async function approveUser(id){
-  try {
-    const r = await (await fetch(`/api/users/${id}/approve`, {method:"POST"})).json();
-    if(!r.ok) throw new Error(r.error || "approve failed");
-    toast(`${r.user.name} can now sign in.`, 3000);
-    await loadUsers(); renderUsersTable();
-  } catch(e){ toast("Could not approve: "+e.message, 6000); }
-}
-
 /* ---- init ---- */
 async function init(){
   await loadCfgFields();
@@ -559,8 +455,6 @@ async function init(){
     updatePreview();
   } catch(e){ toast("Could not load templates: "+e, 6000); }
   refreshEmailAuth();
-  await loadUsers();
-  if(IS_ADMIN && location.hash === "#users") toggleUsers();   // "N pending" link in the top bar
 }
 init();
 </script>
