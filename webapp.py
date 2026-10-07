@@ -817,6 +817,19 @@ _ILLEGAL_FS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _EMAIL_OK = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
+def _format_phone(value: str) -> str | None:
+    """Add Candidate phone → 'xxx-xxx-xxxx' (Thai 10 digits; a pasted +66 prefix
+    becomes 0). '' stays ''; anything else that isn't 10 digits → None (rejected)."""
+    if not (value or "").strip():
+        return ""
+    digits = re.sub(r"\D", "", value)
+    if len(digits) == 11 and digits.startswith("66"):
+        digits = "0" + digits[2:]
+    if len(digits) != 10:
+        return None
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+
 def _safe_filename(value: str, fallback: str) -> str:
     cleaned = _ILLEGAL_FS.sub("_", (value or "").strip())
     cleaned = re.sub(r"\s+", "_", cleaned).strip("._ ")
@@ -846,6 +859,9 @@ def api_candidate_add():
         return jsonify({"ok": False, "error": "Full name is required."}), 400
     if email and not _EMAIL_OK.fullmatch(email):
         return jsonify({"ok": False, "error": "That e-mail address doesn't look right."}), 400
+    phone = _format_phone(f.get("phone") or "")
+    if phone is None:
+        return jsonify({"ok": False, "error": "Phone must be 10 digits (xxx-xxx-xxxx)."}), 400
     up = request.files.get("resume")
     pdf_bytes = b""
     if up is not None and up.filename:
@@ -866,7 +882,7 @@ def api_candidate_add():
             job_id, full_name=full_name,
             name_title=(f.get("name_title") or "").strip()[:10],
             nickname=(f.get("nickname") or "").strip()[:100],
-            email=email[:300], phone=(f.get("phone") or "").strip()[:100],
+            email=email[:300], phone=phone,
             remark=(f.get("remark") or "").strip(),
             current_salary=(f.get("current_salary") or "").strip()[:100],
             minimum_expect_salary=(f.get("minimum_expect_salary") or "").strip()[:100],

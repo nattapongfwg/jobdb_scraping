@@ -116,12 +116,18 @@
           <select id="adTitle"></select></label>
         <label>Nickname
           <input type="text" id="adNick" maxlength="100" placeholder="nickname"></label>
-        <label class="add-span2">Full name <span class="req">*</span>
-          <input type="text" id="adName" maxlength="300" placeholder="First Last" required></label>
+        <label>First name <span class="req">*</span>
+          <input type="text" id="adFirst" maxlength="150" placeholder="First name" autocomplete="off" required>
+          <span class="field-err" id="adFirstErr"></span></label>
+        <label>Last name
+          <input type="text" id="adLast" maxlength="150" placeholder="Last name" autocomplete="off">
+          <span class="field-err" id="adLastErr"></span></label>
         <label>Email
-          <input type="email" id="adEmail" maxlength="300" placeholder="name@example.com"></label>
+          <input type="email" id="adEmail" maxlength="300" placeholder="name@example.com" autocomplete="off" spellcheck="false">
+          <span class="field-err" id="adEmailErr"></span></label>
         <label>Phone
-          <input type="text" id="adPhone" maxlength="100" placeholder="08x-xxx-xxxx"></label>
+          <input type="tel" id="adPhone" maxlength="12" inputmode="numeric" placeholder="081-234-5678" autocomplete="off">
+          <span class="field-err" id="adPhoneErr"></span></label>
         <label>💰 Current salary
           <input type="text" id="adCur" maxlength="100" placeholder="e.g. 30K"></label>
         <label>📉 Min expect
@@ -369,16 +375,68 @@ function openAddModal(){
   $("#addForm").reset();
   $("#adTitle").innerHTML = titleOpts("");
   const err = $("#adErr"); err.style.display = "none"; err.textContent = "";
+  ["adFirst", "adLast", "adEmail", "adPhone"].forEach(id => fieldError(id, ""));
   $("#adBtn").disabled = false; $("#adBtn").textContent = "Add to Pending";
   $("#addModal").classList.add("open");
-  setTimeout(() => $("#adName").focus(), 50);
+  setTimeout(() => { if(!$("#addModal").contains(document.activeElement)) $("#adFirst").focus(); }, 50);
 }
+/* Inline field checks: a red border + a short hint under the box. */
+const AD_EMAIL_OK = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
+function fieldError(id, msg){
+  const inp = $("#" + id), hint = $("#" + id + "Err");
+  inp.classList.toggle("invalid", !!msg);
+  if(hint) hint.textContent = msg || "";
+  if(!msg && !document.querySelector("#addForm .invalid")) addError("");   // all fixed → drop the summary line
+  return !msg;
+}
+function phoneDigits(v){
+  v = String(v || "");
+  let d = v.replace(/\D/g, "");
+  if(/^\s*\+\s*6\s*6/.test(v) || /^66\d{9}$/.test(d)) d = "0" + d.slice(2);   // +66 81 234 5678 → 0812345678
+  return d.slice(0, 10);
+}
+function formatPhone(d){
+  return d.length > 6 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`
+       : d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d;
+}
+function checkFirst(){ return fieldError("adFirst", $("#adFirst").value.trim() ? "" : "First name is required."); }
+function checkEmail(){
+  const v = $("#adEmail").value.trim();
+  return fieldError("adEmail", !v || AD_EMAIL_OK.test(v) ? "" : "Enter a valid email, e.g. name@example.com");
+}
+function checkPhone(){
+  const d = phoneDigits($("#adPhone").value);
+  return fieldError("adPhone", !d || d.length === 10 ? "" : "Enter 10 digits — format xxx-xxx-xxxx.");
+}
+function onPhoneInput(e){
+  const inp = e.target, before = inp.value.slice(0, inp.selectionStart).replace(/\D/g, "").length;
+  if(/^\s*\+\s*6?\s*$/.test(inp.value)){ inp.value = inp.value.replace(/\s/g, ""); return; }   // "+", "+6" → wait for "+66"
+  inp.value = formatPhone(phoneDigits(inp.value));
+  let pos = 0, seen = 0;                                 // keep the caret after the same digit
+  while(pos < inp.value.length && seen < before){ if(/\d/.test(inp.value[pos])) seen++; pos++; }
+  inp.setSelectionRange(pos, pos);
+  if(inp.classList.contains("invalid")) checkPhone();
+}
+document.addEventListener("DOMContentLoaded", () => {
+  $("#adPhone").addEventListener("input", onPhoneInput);
+  $("#adPhone").addEventListener("blur", checkPhone);
+  $("#adEmail").addEventListener("blur", checkEmail);
+  $("#adEmail").addEventListener("input", () => { if($("#adEmail").classList.contains("invalid")) checkEmail(); });
+  $("#adFirst").addEventListener("input", () => { if($("#adFirst").classList.contains("invalid")) checkFirst(); });
+});
 function closeAddModal(){ if(adding) return; $("#addModal").classList.remove("open"); }
 function addError(msg){ const e = $("#adErr"); e.textContent = msg; e.style.display = msg ? "block" : "none"; }
 async function confirmAdd(force=false){
   if(adding) return;
-  const name = $("#adName").value.replace(/\s+/g, " ").trim();
-  if(!name){ addError("Full name is required."); $("#adName").focus(); return; }
+  const first = $("#adFirst").value.replace(/\s+/g, " ").trim();
+  const last = $("#adLast").value.replace(/\s+/g, " ").trim();
+  const okFirst = checkFirst(), okEmail = checkEmail(), okPhone = checkPhone();
+  if(!(okFirst && okEmail && okPhone)){
+    addError("Please fix the highlighted fields.");
+    $("#addForm .invalid").focus();
+    return;
+  }
+  const name = [first, last].filter(Boolean).join(" ");
   const file = $("#adResume").files[0];
   if(file && !/\.pdf$/i.test(file.name)){ addError("The résumé must be a PDF file."); return; }
   const fd = new FormData();
@@ -387,7 +445,7 @@ async function confirmAdd(force=false){
   fd.append("nickname", $("#adNick").value.trim());
   fd.append("full_name", name);
   fd.append("email", $("#adEmail").value.trim());
-  fd.append("phone", $("#adPhone").value.trim());
+  fd.append("phone", formatPhone(phoneDigits($("#adPhone").value)));
   fd.append("current_salary", $("#adCur").value.trim());
   fd.append("minimum_expect_salary", $("#adMin").value.trim());
   fd.append("expect_salary", $("#adExp").value.trim());

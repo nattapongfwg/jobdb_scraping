@@ -59,6 +59,8 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | `d302363` | Requests — Doing / Completed tabs, ✔ Complete beside Edit, ↩ Reopen |
 | `3944e5f` | Evaluation popup — pick a per-team Excel form |
 | `bb3f9aa` | **Add Candidate** by hand on the Pending stage, with a PDF résumé (`source='manual'`) |
+| `e3aba52` | Email templates — HR can create / edit / delete too |
+| `ce0e22e` | Add Candidate form — First / Last name, inline e-mail check, phone typed as `xxx-xxx-xxxx` |
 
 ---
 
@@ -98,8 +100,8 @@ They hit the **dev** database only and clean up after themselves.
 | `phase2_templates_test.py` | templates in DB, JSON migration, no rewrite when unchanged |
 | `phase3_auth_test.py` | setup, register, pending block, approve, 401/403 rules, reset, deactivate (34 checks) |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
-| `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413 (26 checks) |
-| `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
+| `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413, phone stored as `xxx-xxx-xxxx`, bad phone 400 (28 checks) |
+| `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, tries bad first name / e-mail / phone (inline errors), types `+66 …` into Phone, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
@@ -163,10 +165,12 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `POST /api/candidates/add` — **multipart** form (`job_id, name_title, nickname, full_name*, email,
   phone, remark, current_salary, minimum_expect_salary, expect_salary, resume (PDF), force`). Admin and
   HR. **409** `{"duplicate": {...}}` when the same e-mail or name is already in the job (the UI asks
-  "add anyway?" and resends with `force=1`); 400 for a missing name / bad e-mail / non-PDF; 404 unknown
+  "add anyway?" and resends with `force=1`); 400 for a missing name / bad e-mail / bad phone / non-PDF; 404 unknown
   job; **413** JSON above `MAX_RESUME_MB` (20). The résumé is written where the scraper would put it —
   `resume/<job title>/<name>_<application_id>.pdf` (`_safe_filename` mirrors `scraper._safe_filename`
   so the web app never imports Playwright) — and the row is deleted again if the file cannot be saved.
+  The form's First + Last name are joined into `full_name` by the page. `phone` must be 10 digits
+  (a `+66` prefix becomes `0`) and is stored as `xxx-xxx-xxxx` (`_format_phone`); blank is fine.
 - `_user_prefix()` = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
 - Context processor injects `me` and `pending_users` into every template; `templates/_who.html` renders the top-bar identity.
 - `PORT` env var chooses the listening port.
@@ -190,7 +194,10 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `pipeline.html` — 👤 owner pill (click → reassign), **My candidates** toggle, 🕘 history modal, reload on stage conflict, "already sent → send again?" confirm.
   **➕ Add Candidate** toolbar on the Pending stage (shown even when Pending is empty) → `#addModal`
   (`openAddModal / confirmAdd`, `FormData` upload; after a successful add the list reloads, the new
-  card scrolls into view with a gold `just-added` ring). Manual cards show "✍ Added by hand" instead of
+  card scrolls into view with a gold `just-added` ring). Fields: Title, Nickname, **First name*** /
+  Last name, Email (checked on blur), Phone (digits only, formats to `xxx-xxx-xxxx` as you type), salaries,
+  résumé, remark. Bad fields get a red border + a one-line hint under the box (fixed height, so the
+  form never shifts under the mouse). Manual cards show "✍ Added by hand" instead of
   the JobDB line plus a dashed **✍ Manual** pill; history reads "Added by hand → Pending".
 - `tracking.html` — the same "✍ Added by hand" line for manual rows (`list_all_candidates` carries `source`).
 - `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**

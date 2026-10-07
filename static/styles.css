@@ -428,7 +428,7 @@ tbody tr:hover { background: var(--panel-2); }
 .modal p { color: var(--ink-soft); font-size: 14px; margin: 0 0 16px; }
 .modal p code { background: var(--panel-2); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
 .modal label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
-.modal input[type=date], .modal input[type=time], .modal input[type=text], .modal input[type=email],
+.modal input[type=date], .modal input[type=time], .modal input[type=text], .modal input[type=email], .modal input[type=tel],
 .modal select, .modal input:not([type]), .modal textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px;
   background: var(--bg-2); color: var(--ink); font-size: 14px; font-family: inherit;
@@ -454,6 +454,10 @@ tbody tr:hover { background: var(--panel-2); }
 .modal .add-grid input[type=file] { display: block; width: 100%; font-size: 13px; color: var(--ink-soft); }
 .modal .add-grid .req { color: var(--red); }
 .modal .add-err { color: var(--red); font-size: 13px; margin-top: 10px; }
+/* fixed height: a hint appearing on blur must not shift the form (a click on Add would miss) */
+.modal .add-grid .field-err { display: block; height: 16px; line-height: 16px; margin-top: 3px; font-size: 12px;
+                               color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modal .add-grid input.invalid, .modal .add-grid input.invalid:focus { border-color: var(--red); }
 
 /* ---- toast ---- */
 .toast {
