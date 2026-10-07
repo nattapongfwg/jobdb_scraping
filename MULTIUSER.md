@@ -81,8 +81,9 @@ tables appear automatically) and seeds one Admin row if the `users` table is emp
 - **Reset to first-run** (to see `/setup` again):
   `UPDATE dbo.users SET password_hash = NULL WHERE role = 'admin';`
 - **See who exists:** `.venv\Scripts\python.exe debug\list_users.py`
-- **State on 2026-09-30:** the Admin account exists (username `admin`, prefix `N`, you set
-  the password in the browser). The test HR user "Su" is approved but has no password yet.
+- **State on 2026-10-07:** the dev DB has **only the Admin account** (username `admin`, prefix `N`,
+  you set the password in the browser). All other users were removed so you can create the
+  HR accounts yourself with ➕ Create HR.
 
 Restart `webapp.py` after editing any `.py` file (templates are cached too — Flask runs
 with `debug=False`). Hard-refresh the browser (Ctrl+F5) after CSS changes.
@@ -232,8 +233,6 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   ignored now). Templates come from the DB.
 - Deleting the last **exam**-type template leaves none (pre-existing behaviour); the
   send-exam button then reports "No email template configured". Add one back in the UI.
-- The test user "Su" (prefix `Su`, `suttharinthon_tap@…`, made-up mobile) exists in the
-  dev DB from testing. Edit or deactivate in Manage users.
 - Old rows without `exam_sent_by` fall back to the signed-in user's prefix when checking
   replies — correct for rows sent from this PC.
 
