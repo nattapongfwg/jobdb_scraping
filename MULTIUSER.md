@@ -102,6 +102,7 @@ They hit the **dev** database only and clean up after themselves.
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
 | `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413, phone stored as `xxx-xxx-xxxx`, bad phone 400 (28 checks) |
 | `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, tries bad first name / e-mail / phone (inline errors), types `+66 …` into Phone, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
+| `ui_tracking_stages.py` | **browser check**: Status Tracking Stage multi-select — counts match the DB, button text, remembered after reload, Escape / outside click, Clear filters, Select all (13 checks) |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
 | `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
@@ -200,6 +201,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   form never shifts under the mouse). Manual cards show "✍ Added by hand" instead of
   the JobDB line plus a dashed **✍ Manual** pill; history reads "Added by hand → Pending".
 - `tracking.html` — the same "✍ Added by hand" line for manual rows (`list_all_candidates` carries `source`).
+- `tracking.html` — **Stage filter is a checkbox dropdown** (tick several stages; none ticked = all; the choice is remembered in
+  `localStorage` as `tracking.stages`). `/api/tracking?stage=` takes a comma list (`sent_exam,shortlist`) → `a.stage IN (…)`.
 - `tracking.html` — **Owner first column** (first name, full name on hover, over 📁 folder prefix); **client-side paging**
   (20 default, 20/40/60, remembered in `localStorage` as `tracking.pageSize`; filters reset to page 1).
 - `email_templates.html` — users manager (Admin). The template editor is the same for Admin and HR

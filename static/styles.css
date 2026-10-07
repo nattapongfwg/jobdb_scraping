@@ -390,6 +390,22 @@ select, .toolbar input[type=text] {
   background: var(--panel); color: var(--ink); font-size: 14px; min-width: 180px;
 }
 select:focus, input:focus { outline: none; border-color: var(--blue); }
+/* checkbox multi-select (Status Tracking → Stage) — looks like the selects beside it */
+.ms { position: relative; }
+.ms-btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 180px; max-width: 280px;
+          padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink);
+          font-size: 14px; font-family: inherit; cursor: pointer; text-align: left; }
+.ms-btn span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-btn:focus, .ms-btn[aria-expanded=true] { outline: none; border-color: var(--blue); }
+.ms-btn.active { border-color: var(--blue); }
+.ms-caret { font-size: 11px; color: var(--muted); }
+.ms-panel { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; min-width: 100%; padding: 6px;
+            background: var(--panel); border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.14); }
+.ms-actions { display: flex; gap: 6px; padding: 2px 4px 6px; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; }
+.filter-group .ms-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer;
+                        font-size: 14px; color: var(--ink); text-transform: none; letter-spacing: normal; white-space: nowrap; }
+.filter-group .ms-opt:hover { background: var(--bg-2); }
+.ms-opt input { margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
 
 .table-wrap { overflow-x: auto; }

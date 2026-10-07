@@ -29,11 +29,20 @@
         <select id="jobFilter"><option value="">All job titles</option></select>
       </div>
       <div class="filter-group">
-        <label for="stageFilter">Stage</label>
-        <select id="stageFilter">
-          <option value="">All stages</option>
-          {% for s in stages %}<option value="{{ s.key }}">{{ s.label }}</option>{% endfor %}
-        </select>
+        <label for="stageBtn">Stage</label>
+        <!-- multi-select: tick any stages; none ticked = all stages -->
+        <div class="ms" id="stageMs">
+          <button type="button" class="ms-btn" id="stageBtn" aria-haspopup="true" aria-expanded="false">
+            <span id="stageBtnText">All stages</span><span class="ms-caret">▾</span></button>
+          <div class="ms-panel" id="stagePanel" hidden>
+            <div class="ms-actions">
+              <button type="button" class="btn ghost tiny" id="stageAll">Select all</button>
+              <button type="button" class="btn ghost tiny" id="stageNone">Clear</button>
+            </div>
+            {% for s in stages %}<label class="ms-opt"><input type="checkbox" value="{{ s.key }}"> {{ s.label }}</label>
+            {% endfor %}
+          </div>
+        </div>
       </div>
       <div class="filter-group">
         <label for="search">Search name</label>
@@ -149,7 +158,7 @@ async function loadJobs(){
 }
 
 async function load(){
-  const job = $("#jobFilter").value, stage = $("#stageFilter").value, q = $("#search").value.trim();
+  const job = $("#jobFilter").value, stage = selectedStages().join(","), q = $("#search").value.trim();
   const url = `/api/tracking?job_id=${encodeURIComponent(job)}&stage=${encodeURIComponent(stage)}&q=${encodeURIComponent(q)}`;
   candidates = await (await fetch(url)).json();
   page = 1;
@@ -247,7 +256,7 @@ async function onEdit(e){
   } catch(err){ toast("Could not save: "+err, 6000); }
 }
 
-function clearFilters(){ $("#jobFilter").value=""; $("#stageFilter").value=""; $("#search").value=""; load(); }
+function clearFilters(){ $("#jobFilter").value=""; setStages([]); $("#search").value=""; load(); }
 window.clearFilters = clearFilters;
 
 // Export the selected job title's pipeline candidates to Excel (saved to Report_Files/
@@ -271,7 +280,33 @@ $("#pageNext").addEventListener("click", () => goPage(page + 1));
 $("#pageLast").addEventListener("click", () => goPage(Infinity));
 
 $("#jobFilter").addEventListener("change", load);
-$("#stageFilter").addEventListener("change", load);
+
+/* ---------- Stage multi-select (checkbox dropdown) ---------- */
+const stageBoxes = () => [...document.querySelectorAll("#stagePanel input[type=checkbox]")];
+const selectedStages = () => stageBoxes().filter(b => b.checked).map(b => b.value);
+function stageButtonText(){
+  const on = stageBoxes().filter(b => b.checked);
+  const all = stageBoxes().length;
+  const text = (!on.length || on.length === all) ? "All stages"
+             : on.length <= 2 ? on.map(b => b.parentElement.textContent.trim()).join(", ")
+             : `${on.length} stages`;
+  $("#stageBtnText").textContent = text;
+  $("#stageBtn").title = on.length && on.length < all ? on.map(b => b.parentElement.textContent.trim()).join(", ") : "";
+  $("#stageBtn").classList.toggle("active", !!on.length && on.length < all);
+}
+function saveStages(){ try { localStorage.setItem("tracking.stages", JSON.stringify(selectedStages())); } catch(e){} }
+function setStages(keys){ stageBoxes().forEach(b => b.checked = keys.includes(b.value)); stageButtonText(); saveStages(); }
+function openStagePanel(open){
+  $("#stagePanel").hidden = !open; $("#stageBtn").setAttribute("aria-expanded", String(open));
+}
+try { const v = JSON.parse(localStorage.getItem("tracking.stages") || "[]"); if(Array.isArray(v)) stageBoxes().forEach(b => b.checked = v.includes(b.value)); } catch(e){}
+stageButtonText();
+$("#stageBtn").addEventListener("click", () => openStagePanel($("#stagePanel").hidden));
+$("#stagePanel").addEventListener("change", () => { stageButtonText(); saveStages(); load(); });
+$("#stageAll").addEventListener("click", () => { setStages(stageBoxes().map(b => b.value)); load(); });
+$("#stageNone").addEventListener("click", () => { setStages([]); load(); });
+document.addEventListener("click", e => { if(!$("#stageMs").contains(e.target)) openStagePanel(false); });
+document.addEventListener("keydown", e => { if(e.key === "Escape" && !$("#stagePanel").hidden){ openStagePanel(false); $("#stageBtn").focus(); } });
 $("#search").addEventListener("input", ()=>{ clearTimeout(window._s); window._s=setTimeout(load, 250); });
 
 (async function init(){ await Promise.all([loadJobs(), loadUsers()]); await load(); })();

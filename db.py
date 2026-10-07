@@ -469,7 +469,8 @@ class Database:
     def list_all_candidates(self, job_id: str = "", stage: str = "",
                             name_query: str = "") -> list[dict[str, Any]]:
         """All candidates across jobs (status-tracking table), with optional
-        job / stage / name filters. Includes the job title for display."""
+        job / stage / name filters. `stage` may list several stages, comma-separated
+        ("sent_exam,shortlist"); blank = every stage. Includes the job title for display."""
         cur = self.conn.cursor()
         cols = ", ".join(f"a.{c.strip()}" for c in self._CAND_COLS.split(","))
         sql = f"SELECT {cols}, j.title FROM dbo.applicants a " \
@@ -478,9 +479,10 @@ class Database:
         if job_id:
             sql += " AND a.job_id = ?"
             params.append(job_id)
-        if stage:
-            sql += " AND a.stage = ?"
-            params.append(stage)
+        stages = [x.strip() for x in (stage or "").split(",") if x.strip()]
+        if stages:
+            sql += f" AND a.stage IN ({', '.join('?' * len(stages))})"
+            params += stages
         if name_query:
             sql += " AND (a.full_name_jobdb LIKE ? OR a.full_name_edit LIKE ?)"
             params += [f"%{name_query}%", f"%{name_query}%"]
