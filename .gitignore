@@ -24,3 +24,6 @@ Report_Files/
 
 # Service wrapper runtime files (service.ps1)
 logs/
+
+# Claude Code personal settings
+.claude/settings.local.json
