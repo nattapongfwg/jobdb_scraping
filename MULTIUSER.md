@@ -1,11 +1,34 @@
-# Multi-user board — work in progress
+# Multi-user board
 
-This folder (`E:\jobdb_multiuser`) is the **development copy** of the recruitment board.
-It is where the "one board, many recruiters" upgrade is being built. The **live board**
-your team uses every day is the separate folder `E:\jobdb_scraping`; it must stay
-untouched by this work until you decide to roll the upgrade out.
+**Since 2026-10-09 this folder (`E:\jobdb_multiuser`) is the board in daily use** — the
+"one board, many recruiters" version, with sign-in. Everything was migrated from the old
+single-user folder `E:\jobdb_scraping` (see **§0 Cut-over** below); that folder is kept
+only as a fallback and no longer runs.
 
 Read this file first when you come back to the project after a break.
+
+---
+
+## 0. Cut-over from the single-user board (2026-10-09)
+
+| What | Done |
+|---|---|
+| Database | `jobdb_multiuser` was **replaced by a fresh copy of the live DB** `jobdb_scraping` (1266 candidates, 7 jobs, 3 requests); the dev test edits are gone. `schema.sql` added the multi-user tables. The 3 accounts (Na = Admin, Fame, Term = HR) were put back with the same ids. Résumé paths now point at `E:\jobdb_multiuser\resume`. |
+| Email templates | Loaded from the old board's `email_kit\email_template.json` (the live versions); the exam attachment now points at `E:\jobdb_multiuser\files_email\…`. |
+| Files | `resume\` (1296 files), `Evaluation_Files\`, `Report_Files\`, `.browser_profile\` (SEEK session), `.graph_token_cache.json` (Recruit mailbox sign-in) copied from the old folder. `files_evaluation\` already held the team forms (the 4 filled-in "Evaluate Interview for App Support as Compare" files were left out on purpose: they name candidates). |
+| `.env` | The old board's values (SEEK, Graph, OpenAI, exam, delays) + `DB_NAME=jobdb_multiuser`, `PORT=2777`, `HOST=0.0.0.0`, `SERVICE_NAME=JobDB Recruitment Board`. The dev OneDrive overrides were removed, so shortlists / exam replies go to the real shared OneDrive folder again. |
+| Background task | The old task (running `E:\jobdb_scraping`) and the "JobDB Multiuser Board (dev)" task were removed; **"JobDB Recruitment Board" now runs this folder** on port **2777** (LAN: <http://10.33.10.51:2777>). |
+| Desktop | `OneDrive\Desktop\HR-Recruitment\Start Recruitment App.bat` now starts this folder and opens `http://localhost:2777`. |
+| Backups | `debug\migration_20261009\`: the dev DB before (`jobdb_multiuser_before.bak`), the live DB copy (`jobdb_scraping_live.bak`), the old dev `.env`, users JSON, the old dev browser profile and the old launcher. The script used: `debug\migrate_from_live.py`; post-checks: `debug\migration_20261009\check_after.py`. |
+
+**Roll back to the single-user board** (only if needed): `.\service.ps1 uninstall` here, then
+`.\service.ps1 install` in `E:\jobdb_scraping` (its DB `jobdb_scraping` was not modified by the
+cut-over; anything done on the multi-user board after 2026-10-09 is not in it).
+
+> ⚠ **The tests in `debug\` now run against the real data.** They read `DB_NAME` from this
+> folder's `.env`, which is now the database in daily use. Several of them create/delete users,
+> reset passwords or re-save every email template. **Do not run them here** until a separate
+> test database is set up (e.g. a second copy of the folder with its own `.env` `DB_NAME`).
 
 ---
 
@@ -30,7 +53,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
-| Hosting (Phase 4) | **Started small (2026-10-07, at the user's request):** the dev copy runs as a background task on this PC and is reachable on the office LAN (`HOST=0.0.0.0`, waitress). Still **not** done: a dedicated server, merging the per-PC databases, moving résumés to a shared disk. |
+| Hosting (Phase 4) | **Started small (2026-10-07, at the user's request):** the board runs as a background task on this PC and is reachable on the office LAN (`HOST=0.0.0.0`, waitress); since 2026-10-09 it is the board in daily use. Still **not** done: a dedicated server, merging the per-PC databases, moving résumés to a shared disk. |
 
 ---
 
@@ -38,12 +61,12 @@ who did it, and the app's own logic says who is responsible for each candidate.
 
 | Item | Value |
 |---|---|
-| Dev folder | `E:\jobdb_multiuser` (WSL: `/mnt/e/jobdb_multiuser`) — a git clone of the live repo, origin = `github.com/nattapongfwg/jobdb_scraping` |
-| Live folder | `E:\jobdb_scraping` — runs as the scheduled task "JobDB Recruitment Board" on port **2757**. Manage with `.\service.ps1 status|restart|deploy`; never start its `webapp.py` by hand. |
-| Dev database | `jobdb_multiuser` on `localhost\SQLEXPRESS` — a copy-only restore of the live database taken 2026-09-30. Safe to break; re-create with `debug\make_dev_db.py` (drop the DB first). |
-| Dev port | **2777** (`PORT=2777` in the dev `.env`; ports 2756–2760 are taken by other apps on this PC). |
-| Dev `.env` | Non-secret only: DB settings, `PORT`, `ONEDRIVE_BASE=E:\jobdb_multiuser\dev_onedrive`, a dev OneDrive path for shortlists. **No SEEK / Graph / OpenAI secrets** — copy those lines from the live `.env` when you need to test emailing, scraping or AI summaries. |
-| Branches (dev repo) | `master` = same as live. Work is stacked: `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → **`feat/multiuser-phase3-login`** (the tip, check this one out). **Nothing is merged into master.** The tip branch is pushed to GitHub as a backup (2026-10-07); `master` and the live board are unchanged. |
+| Board folder | `E:\jobdb_multiuser` (WSL: `/mnt/e/jobdb_multiuser`) — a git clone of the old repo, origin = `github.com/nattapongfwg/jobdb_scraping`. **In daily use since 2026-10-09**; runs as the scheduled task "JobDB Recruitment Board". |
+| Old folder | `E:\jobdb_scraping` — the retired single-user board (task removed 2026-10-09, port 2757 free). Kept as a fallback; see §0. |
+| Database | `jobdb_multiuser` on `localhost\SQLEXPRESS` — **real data** (fresh copy of the old DB on 2026-10-09). **Not safe to break.** (`debug\make_dev_db.py` only copied the old DB into a missing dev DB; don't use it now.) |
+| Port | **2777** (`PORT=2777` in `.env`; ports 2756–2760 are taken by other apps on this PC). |
+| `.env` | Full settings incl. SEEK / Graph / OpenAI secrets (gitignored), `HOST=0.0.0.0`, `SERVICE_NAME=JobDB Recruitment Board`; OneDrive auto-detected (no override). |
+| Branches | `master` = the old single-user code. Work is stacked: `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → **`feat/multiuser-phase3-login`** (the tip, check this one out). **Nothing is merged into master.** The tip branch is pushed to GitHub as a backup (2026-10-07); `master` is unchanged; this folder runs the tip branch. |
 | Session secret | `.secret_key` (auto-created, gitignored). Deleting it signs everyone out. |
 
 ### Commits on the tip branch (oldest first)
@@ -67,11 +90,11 @@ who did it, and the app's own logic says who is responsible for each candidate.
 
 ---
 
-## 3. How to run the dev copy
+## 3. How to run the board
 
-Since 2026-10-07 the dev copy runs as its **own background task**, **"JobDB Multiuser Board (dev)"**
-(dev `.env`: `SERVICE_NAME=…`, `PORT=2777`, `HOST=0.0.0.0`), separate from the live task
-"JobDB Recruitment Board":
+Since 2026-10-09 this folder runs as the background task **"JobDB Recruitment Board"**
+(`.env`: `SERVICE_NAME=…`, `PORT=2777`, `HOST=0.0.0.0`). Until then it was the separate
+"JobDB Multiuser Board (dev)" task beside the old board:
 ```
 cd /d E:\jobdb_multiuser
 .\service.ps1 status | restart | stop | start | logs | deploy
@@ -83,8 +106,8 @@ use other ports (2790+), so they don't clash with it.
 Open <http://localhost:2777> here, or from **other PCs on the office LAN**: <http://10.33.10.51:2777>
 (Wi-Fi IP on 2026-10-07; `status` prints the current one). The existing Windows Firewall rule
 allowing `python.exe` on Domain networks already lets them in; `.\service.ps1 firewall` (needs
-Administrator) adds a narrower rule for just this port. This is the dev database (copy of
-2026-09-30), not live data. Served by **waitress** (`requirements.txt`); `webapp.py` falls back to
+Administrator) adds a narrower rule for just this port. **This is the real data** (since the
+2026-10-09 cut-over). Served by **waitress** (`requirements.txt`); `webapp.py` falls back to
 Flask's server if waitress is missing. Startup applies `schema.sql` (idempotent, so new columns and
 tables appear automatically) and seeds one Admin row if the `users` table is empty.
 
@@ -96,17 +119,18 @@ tables appear automatically) and seeds one Admin row if the `users` table is emp
 - **Reset to first-run** (to see `/setup` again):
   `UPDATE dbo.users SET password_hash = NULL WHERE role = 'admin';`
 - **See who exists:** `.venv\Scripts\python.exe debug\list_users.py`
-- **State on 2026-10-07:** the dev DB has **only the Admin account** (username `admin`, prefix `N`,
-  you set the password in the browser). All other users were removed so you can create the
-  HR accounts yourself with ➕ Create HR.
+- **State on 2026-10-09:** three accounts — `Na` (Admin, prefix `N`), `Fame` and `Term` (HR).
 
 Restart `webapp.py` after editing any `.py` file (templates are cached too — Flask runs
 with `debug=False`). Hard-refresh the browser (Ctrl+F5) after CSS changes.
 
 ### Tests and checks (`debug\` is gitignored)
 
-Run each with `set PYTHONUTF8=1&& .venv\Scripts\python.exe debug\<file>` from the dev folder.
-They hit the **dev** database only and clean up after themselves.
+> ⚠ Since 2026-10-09 `.env` points at the **real** database — don't run these here (see §0).
+> They were written for the old dev database and only "clean up" their own rows; some reset
+> passwords or re-save every email template.
+
+Run each with `set PYTHONUTF8=1&& .venv\Scripts\python.exe debug\<file>` from a test copy.
 
 | Script | Covers |
 |---|---|
@@ -252,16 +276,16 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ## 5. Things to know (gotchas)
 
 - **`service.ps1` reads `SERVICE_NAME` / `PORT` / `HOST` from the folder's `.env`** and refuses to
-  install over a task that runs another folder (so the dev copy can't hijack the live task).
-- **Do not develop in `E:\jobdb_scraping`.** It is live and in daily use. Bring finished
-  work over as commits (cherry-pick, like the perf change) or by merging when the rollout
-  is decided.
-- The live database already has the harmless empty `exam_sent_by` column (from an early
-  test on 2026-09-30). Everything else in the live DB is untouched.
+  install over a task that runs another folder (so a second copy can't hijack the board's task).
+- **Since 2026-10-09 this folder is in daily use** (it took over from `E:\jobdb_scraping`).
+  The code still runs from the branch `feat/multiuser-phase3-login`; nothing is merged into `master`.
+  Develop in a separate copy (own `.env` `DB_NAME`, `PORT`, `SERVICE_NAME`) rather than here.
+- The old database `jobdb_scraping` has the harmless empty `exam_sent_by` column (from an early
+  test on 2026-09-30) and is otherwise untouched; it is the rollback point (§0).
 - The live repo still has a leftover `git stash` ("phase1 WIP") and an empty branch
   `feat/multiuser-phase1-safety`; both can be dropped.
 - An old June clone `E:\jobdb_scraping_upgrade` exists and is unrelated; leave it.
-- `email_kit/email_template.json` in the dev copy holds settings only (`user_prefix` is
+- `email_kit/email_template.json` here holds settings only (`user_prefix` is
   ignored now). Templates come from the DB.
 - Deleting the last **exam**-type template leaves none (pre-existing behaviour); the
   send-exam button then reports "No email template configured". Add one back in the UI.
@@ -272,12 +296,13 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 
 ## 6. What is next (when you are ready)
 
-1. **Try it in the browser** in the dev copy: `/setup`, register a test HR account in a
-   private window, approve it, move a card as HR, check the badge and history.
-2. Decide the rollout. Options that need **no server**: merge the dev branches into
-   `master` and deploy to your own PC (`.\service.ps1 deploy` in the live folder), so the
-   live board gains sign-in, owners and history while still being single-PC.
-3. **Phase 4 (parked):** shared hosting (IT server or a designated always-on PC), merge
+1. ~~Try it in the browser~~ / ~~decide the rollout~~ — done: this folder became the board in
+   daily use on 2026-10-09 (§0).
+2. Merge the stacked branches into `master` so the code in use is on the main branch, and set up
+   a separate test copy + database so the `debug\` tests can run again.
+3. **Server move:** planning document `SERVER_DEPLOYMENT.md` (2026-10-09) — options, questions for IT,
+   app changes and the step-by-step move. No server chosen yet.
+4. **Phase 4 (parked):** shared hosting (IT server or a designated always-on PC), merge
    the per-PC databases (dedup on `job_id + candidate_key`, keep the furthest stage), move
    résumés to the shared disk, SEEK/Recruit sign-in done once on the host. Discuss only
    when you want to.
