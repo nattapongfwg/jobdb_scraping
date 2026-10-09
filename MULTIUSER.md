@@ -66,10 +66,10 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Database | `jobdb_multiuser` on `localhost\SQLEXPRESS` — **real data** (fresh copy of the old DB on 2026-10-09). **Not safe to break.** (`debug\make_dev_db.py` only copied the old DB into a missing dev DB; don't use it now.) |
 | Port | **2777** (`PORT=2777` in `.env`; ports 2756–2760 are taken by other apps on this PC). |
 | `.env` | Full settings incl. SEEK / Graph / OpenAI secrets (gitignored), `HOST=0.0.0.0`, `SERVICE_NAME=JobDB Recruitment Board`; OneDrive auto-detected (no override). |
-| Branches | `master` = the old single-user code. Work is stacked: `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → **`feat/multiuser-phase3-login`** (the tip, check this one out). **Nothing is merged into master.** The tip branch is pushed to GitHub as a backup (2026-10-07); `master` is unchanged; this folder runs the tip branch. |
+| Branches | **`master`** = the multi-user board in daily use; this folder has it checked out. The work was built on stacked branches `feat/multiuser-phase1-safety` → `feat/multiuser-phase2-users` → `feat/multiuser-phase3-login`, merged into `master` and pushed on 2026-10-09 (`a425e9f`); the branches were then deleted here and on GitHub. |
 | Session secret | `.secret_key` (auto-created, gitignored). Deleting it signs everyone out. |
 
-### Commits on the tip branch (oldest first)
+### Multi-user commits, now on `master` (oldest first)
 
 | Commit | What |
 |---|---|
@@ -278,7 +278,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - **`service.ps1` reads `SERVICE_NAME` / `PORT` / `HOST` from the folder's `.env`** and refuses to
   install over a task that runs another folder (so a second copy can't hijack the board's task).
 - **Since 2026-10-09 this folder is in daily use** (it took over from `E:\jobdb_scraping`).
-  The code still runs from the branch `feat/multiuser-phase3-login`; nothing is merged into `master`.
+  It runs `master` (all multi-user work merged on 2026-10-09).
   Develop in a separate copy (own `.env` `DB_NAME`, `PORT`, `SERVICE_NAME`) rather than here.
 - The old database `jobdb_scraping` has the harmless empty `exam_sent_by` column (from an early
   test on 2026-09-30) and is otherwise untouched; it is the rollback point (§0).
@@ -298,8 +298,8 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 
 1. ~~Try it in the browser~~ / ~~decide the rollout~~ — done: this folder became the board in
    daily use on 2026-10-09 (§0).
-2. Merge the stacked branches into `master` so the code in use is on the main branch, and set up
-   a separate test copy + database so the `debug\` tests can run again.
+2. ~~Merge the stacked branches into `master`~~ — done 2026-10-09. Still to do: set up a separate
+   test copy + database so the `debug\` tests can run again.
 3. **Server move:** planning document `SERVER_DEPLOYMENT.md` (2026-10-09) — options, questions for IT,
    app changes and the step-by-step move. No server chosen yet.
 4. **Phase 4 (parked):** shared hosting (IT server or a designated always-on PC), merge
