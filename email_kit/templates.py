@@ -22,7 +22,13 @@ Placeholders in `subject` and `body` (filled per-candidate at send time):
     {job_title}       the job posting title
     {company}         the template's `company` field
     {deadline}        the deadline HR picks when moving to "Sent Exam"
+    {signature}       the sender's label (name + contact lines) for this template's
+                      type — see email_kit/signature.py label_html
     {<custom_var>}    any HR-defined custom variable on the template (custom_vars)
+
+The DEFAULT_* bodies below are the live templates of 2026-10-16 (the Software
+Implementer exam for "exam") with the typed-in label replaced by {signature}; the
+editor fills them in when HR picks a type (type_defaults).
 """
 from __future__ import annotations
 
@@ -32,35 +38,138 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
-from .signature import signature_html, signature_text
+from .signature import html_to_text, label_html
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / "email_template.json"
 
-DEFAULT_BODY = """Dear {title_name},
+DEFAULT_BODY = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Exam and documents information</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#333333;">
 
-{company} would like to confirm the test before interview as below;
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8; padding:24px 0;">
+    <tr>
+      <td align="center">
 
-Company: {company}
-Location: Lumpini Tower 29th Floor, Bangkok 10120
-Website: www.freewillsolutions.com
+        <table width="650" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:10px; overflow:hidden; border:1px solid #e5e7eb;">
+          
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#0b3d91; padding:22px 30px; color:#ffffff;">
+              <h2 style="margin:0; font-size:22px; font-weight:600;">
+                Exam and documents information
+              </h2>
+            </td>
+          </tr>
 
-Position: {job_title}
+          <!-- Body -->
+          <tr>
+            <td style="padding:30px; font-size:15px; line-height:1.6;">
 
-To-do list before interview
+              <p style="margin-top:0;">
+                Dear {title} <strong>{full_name_edit}</strong>,
+              </p>
 
-1. Complete MBTI personalities test >>> https://www.16personalities.com/th
+              <p>
+                <strong>{company}</strong> would like to confirm the test and documents as below:
+              </p>
 
-2. Transcript (PDF)
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0; border-collapse:collapse;">
+                <tr>
+                  <td style="padding:8px 0; width:120px;"><strong>Company:</strong></td>
+                  <td style="padding:8px 0;">{company}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;"><strong>Location:</strong></td>
+                  <td style="padding:8px 0;">Lumpini Tower 29th Floor, Bangkok 10120</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;"><strong>Website:</strong></td>
+                  <td style="padding:8px 0;">
+                    <a href="https://www.freewillsolutions.com" style="color:#0b3d91; text-decoration:none;">
+                      www.freewillsolutions.com
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;"><strong>Position:</strong></td>
+                  <td style="padding:8px 0;">{job_title}</td>
+                </tr>
+              </table>
 
-3. Complete "Implementer test" >>> https://forms.office.com/r/cpgBQL8FH9
+              <h3 style="font-size:17px; color:#0b3d91; margin-top:28px;">
+                To-do list before deadline
+              </h3>
 
-4. Logic thinking design >>> Attach file (INS-Imp last section 2)
+              <ol style="padding-left:20px; margin-top:10px;">
+                <li style="margin-bottom:10px;">
+                  Complete MBTI personalities test  
+                  <br>
+                  <a href="https://www.16personalities.com/th" style="color:#0b3d91;">
+                    https://www.16personalities.com/th
+                  </a>
+                </li>
 
-5. Send back your result of MBTI personalities, Transcript and Ins/Imp file (save as PDF) before the interview time
+                <li style="margin-bottom:10px;">
+                  Prepare Transcript file in PDF format
+                </li>
 
-Deadline: {deadline}
+                <li style="margin-bottom:10px;">
+                  Complete “Implementer test”  
+                  <br>
+                  <a href="https://forms.office.com/r/cpgBQL8FH9" style="color:#0b3d91;">
+                    https://forms.office.com/r/cpgBQL8FH9
+                  </a>
+                </li>
 
-{signature}"""
+                <li style="margin-bottom:10px;">
+                  Complete Logic thinking design from the attached file  
+                  <br>
+                  <span style="color:#666666;">File: INS-Imp last section 2</span>
+                </li>
+
+                <li style="margin-bottom:10px;">
+                  Send back your MBTI result, Transcript, and INS/IMP file 
+                  <strong>in PDF format</strong> before the deadline time.
+                </li>
+              </ol>
+
+              <div style="background-color:#fff4e5; border-left:4px solid #f59e0b; padding:14px 16px; margin:24px 0;">
+                <strong>Deadline:</strong> {deadline}
+              </div>
+
+              <p>
+                Best regards,
+              </p>
+
+              <p style="margin-bottom:0;">
+                {signature}
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f9fafb; padding:22px 30px; font-size:13px; color:#555555; line-height:1.5; border-top:1px solid #e5e7eb;">
+              <strong>Human Resources Department</strong><br>
+              Freewill Solutions Company Limited<br>
+              1168/86-88 Lumpini Tower, 29th Floor,<br>
+              Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>"""
 
 # Default team CC for exam emails. HR-editable per exam template on the config page;
 # this only backfills legacy exam templates that predate the CC field.
@@ -73,9 +182,9 @@ DEFAULT_FIELDS: dict = {
     "company": "Freewill Solutions Co., Ltd.",
     "attachments": [],                      # list of file paths to attach (optional)
     "cc": list(DEFAULT_EXAM_CC),            # extra CC recipients (exam emails only)
-    "is_html": False,                       # send body as HTML (else plain text)
+    "is_html": True,                        # send body as HTML (else plain text)
     "default_deadline_time": "23:59",       # prefilled time in the deadline picker
-    "subject": "Freewill Solutions_Interview: {title_name} ({job_title})",
+    "subject": "{job_title} Challenge - Freewill Solutions for {full_name_edit}",
     "body": DEFAULT_BODY,
 }
 
@@ -88,7 +197,16 @@ DEFAULT_SHORTLIST_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,san
 <p style="margin:0 0 20px"><b>Please see candidate for {job_title} at the attached link</b></p>
 {candidates}
 <p style="margin:14px 0 0"><b>Link document:</b> {link_document}</p>
+<p style="margin:26px 0 0">
+<b>Best regard,</b><br>
 {signature}
+</p>
+<p style="margin:18px 0 0">
+Human Resources Department<br>
+<b>Freewill Solutions Company Limited</b><br>
+1168/86-88&nbsp; Lumpini Tower, 29th Floor,<br>
+Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
+</p>
 </div>"""
 
 DEFAULT_SHORTLIST_FIELDS: dict = {
@@ -119,15 +237,25 @@ def _fill(text: str, fields: dict) -> str:
 # candidate's name), {title} (Mr./Ms./Mrs.), {job_title}. <TEAM> and the Date & Time
 # line are left as literal text for HR to fill in Outlook.
 DEFAULT_INTERVIEW_BODY = """<div style="font-family:'Aptos','Segoe UI',Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.5">
-<p style="margin:0 0 14px">Dear {title} {firstname} &amp; team,</p>
-<p style="margin:0 0 2px">Freewill Solutions Co., Ltd. would like to confirm the interview appointment as below.</p>
-<p style="margin:0">Company: Freewill Solutions Co., Ltd.<br>
-Location: Lumpini Tower 29th Floor, Bangkok 10120<br>
-Website: www.freewillsolutions.com</p>
-<p style="margin:20px 0 0">Position: {job_title}<br>
-Date &amp; Time: DD MM YYYY / HH:MM AM. - HH.MM PM.<br>
-Place: Online conference via MS Team</p>
-<hr style="margin:18px 0 0;border:none;border-top:1px solid #000">
+  <p style="margin:0 0 14px">Dear {title} {firstname} &amp; team,</p>
+
+  <p style="margin:0 0 2px">
+    Freewill Solutions Co., Ltd. would like to confirm the interview appointment as below.
+  </p>
+
+  <p style="margin:0">
+    <strong>Company:</strong> Freewill Solutions Co., Ltd.<br>
+    <strong>Location:</strong> Lumpini Tower 29th Floor, Bangkok 10120<br>
+    <strong>Website:</strong> www.freewillsolutions.com
+  </p>
+
+  <p style="margin:20px 0 0">
+    <strong>Position:</strong> {job_title}<br>
+    <strong>Date &amp; Time:</strong> <span style="background-color:#ffff00">DD MM YYYY / HH:MM AM. - HH.MM PM.</span><br>
+    <strong>Place:</strong> <span style="background-color:#ffff00">Online conference via MS Team</span>
+  </p>
+
+  <hr style="margin:18px 0 0;border:none;border-top:1px solid #000">
 </div>"""
 
 DEFAULT_INTERVIEW_FIELDS: dict = {
@@ -181,7 +309,16 @@ Interviewer : {interviewer}<br>
 </p>
 <hr style="border:none;border-top:1px solid #999;margin:14px 0">
 <p style="margin:0 0 14px">ช่องทางการสรรหา (Sourcing): JOB DB</p>
+<p style="margin:18px 0 0">
+<b>Best regard,</b><br>
 {signature}
+</p>
+<p style="margin:18px 0 0">
+Human Resources Department<br>
+<b>Freewill Solutions Company Limited</b><br>
+1168/86-88&nbsp; Lumpini Tower, 29th Floor,<br>
+Rama IV Road, Tungmahamek, Sathorn, Bangkok 10120
+</p>
 </div>"""
 
 DEFAULT_OFFER_FIELDS: dict = {
@@ -193,6 +330,21 @@ DEFAULT_OFFER_FIELDS: dict = {
     "subject": "ขอยืนยันข้อมูลเสนอจ้างพนักงาน {department}: {section} ({role}) as of {today}",
     "body": DEFAULT_OFFER_BODY,
 }
+
+_TYPE_DEFAULTS = {"exam": DEFAULT_FIELDS, "shortlist": DEFAULT_SHORTLIST_FIELDS,
+                  "interview": DEFAULT_INTERVIEW_FIELDS, "offer": DEFAULT_OFFER_FIELDS}
+
+
+def type_defaults() -> dict:
+    """{type: {subject, body, is_html}} — what the editor fills in when HR picks a type."""
+    return {k: {f: d[f] for f in ("subject", "body", "is_html")}
+            for k, d in _TYPE_DEFAULTS.items()}
+
+
+def _signature(template: dict) -> tuple[str, str]:
+    """{signature} as (HTML, plain text): the sender's label for this template's type."""
+    label = label_html(template.get("type") or "exam")
+    return label, html_to_text(label)
 
 
 def _new_id() -> str:
@@ -424,9 +576,10 @@ def _render_with_fields(template: dict, base: dict, custom: dict) -> tuple[str, 
     can embed links/markup. The subject is always plain text. Returns (subject, body)."""
     is_html = bool(template.get("is_html"))
     e = _esc if is_html else (lambda s: s)
-    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
-    body_fields = {**{k: e(v) for k, v in base.items()}, "signature": sig, **custom}
-    subj_fields = {**base, "signature": sig, **custom}
+    sig_html, sig_text = _signature(template)  # the sender's label, raw
+    body_fields = {**{k: e(v) for k, v in base.items()},
+                   "signature": sig_html if is_html else sig_text, **custom}
+    subj_fields = {**base, "signature": sig_text, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))
 
@@ -495,14 +648,14 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
 
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in ("job_title", "company", "candidates", "link_document")}
-    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    sig_html, sig_text = _signature(template)  # the sender's label, raw
     body_fields = {"job_title": job, "company": comp,
                    "candidates": candidates_str, "link_document": link_str,
-                   "signature": sig, **custom}
+                   "signature": sig_html if is_html else sig_text, **custom}
     # Subject is always plain text (never HTML-escaped / no markup).
     subj_fields = {"job_title": job_title or "", "company": template.get("company", ""),
                    "candidates": "", "link_document": link_text or link_url or "",
-                   "signature": sig, **custom}
+                   "signature": sig_text, **custom}
 
     subject = _fill(template.get("subject", ""), subj_fields)
     raw_body = template.get("body", "")
@@ -523,9 +676,9 @@ def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, st
     e = _esc if is_html else (lambda s: s)
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
               if k not in fields and k not in blocks}
-    sig = signature_html() if is_html else signature_text()  # this machine's recruiter, raw
+    sig_html, sig_text = _signature(template)  # the sender's label, raw
     body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks,
-                   "signature": sig, **custom}
-    subj_fields = {**fields, "signature": sig, **custom}
+                   "signature": sig_html if is_html else sig_text, **custom}
+    subj_fields = {**fields, "signature": sig_text, **custom}
     return (_fill(template.get("subject", ""), subj_fields),
             _fill(template.get("body", ""), body_fields))

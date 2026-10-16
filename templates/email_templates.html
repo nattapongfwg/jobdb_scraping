@@ -114,7 +114,7 @@
       <div class="et-grid">
         <label>Template name<input id="cfgName" placeholder="e.g. Implementer Interview" oninput="updatePreview()"></label>
         <label>Type
-          <select id="cfgType" onchange="onTypeChange()">
+          <select id="cfgType" onchange="onTypeSelect()">
             <option value="exam">Exam — to the candidate</option>
             <option value="shortlist">Shortlist — group draft to your team</option>
             <option value="interview">Interview — Outlook calendar event</option>
@@ -174,6 +174,35 @@
       </div>
     </section>
   </div>
+
+  <!-- Signature: each user's name + contact lines per email type → {signature} -->
+  <section class="et-panel et-editor" style="margin-top:20px">
+    <h3 style="margin:0 0 8px;font-size:15px;color:var(--ink)">✍️ Signature</h3>
+    <p class="hint">Fills <code>{signature}</code> in the templates with the name and contact lines of
+      whoever sends the email, for that template's type. Not saved yet = the default from the profile.</p>
+    <div class="et-grid">
+      <label>User
+        <select id="sigUser" onchange="loadSignatures()" {% if me.role != 'admin' %}disabled{% endif %}>
+          {% for u in sig_users %}<option value="{{ u.user_id }}" {% if u.user_id == me.user_id %}selected{% endif %}>{{ u.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Email type<select id="sigType" onchange="showSignature()"></select></label>
+    </div>
+    <div class="body-grid" style="margin-top:14px">
+      <label>Body <span id="sigState" class="muted" style="text-transform:none"></span>
+        <textarea id="sigBody" rows="7" style="min-height:150px" oninput="updateSigPreview()"></textarea>
+      </label>
+      <div>
+        <label style="margin-bottom:6px">Preview</label>
+        <iframe id="sigPreviewFrame" class="preview-frame" style="height:150px" title="Signature preview" sandbox></iframe>
+      </div>
+    </div>
+    <div class="et-actions">
+      <button class="btn ghost" onclick="resetSignature()">↺ Reset to default</button>
+      <span class="spacer"></span>
+      <button class="btn" id="sigSaveBtn" onclick="saveSignature(false)">Save signature</button>
+    </div>
+  </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -187,7 +216,9 @@ function toast(msg, ms=3000){ const t=$("#toast"); t.textContent=msg; t.style.di
 /* ---------- state ---------- */
 let cfgTemplates = [], cfgCurrentId = null;
 let cfgFields = [], cfgLastField = "cfgBody";   // available DB fields + last-focused input
+let cfgDefaults = {}, cfgPrevType = "exam";     // {type: {subject, body, is_html}}; type shown before
 const TYPE_LABEL = { exam:"Exam", shortlist:"Shortlist", interview:"Interview", offer:"Offer" };
+const ME_ID = {{ me.user_id }};
 
 function fillTemplateFields(t){
   t = t || {};
@@ -221,7 +252,8 @@ function pickTemplate(id){
 }
 function newTemplate(){
   cfgCurrentId = null;                 // no id → save creates a new one
-  fillTemplateFields({name:"", type:"exam", company:"Freewill Solutions Co., Ltd.", default_deadline_time:"23:59"});
+  fillTemplateFields({name:"", type:"exam", company:"Freewill Solutions Co., Ltd.",
+                      default_deadline_time:"23:59", ...(cfgDefaults.exam||{})});
   renderTemplateList();
   updatePreview();
   $("#cfgName").focus();
@@ -290,9 +322,22 @@ async function loadCfgFields(){
   renderFieldChips();
 }
 
+// Picking a type fills Subject + Body with that type's default template: at once when
+// they're blank or still the previous type's default, otherwise only after a confirm.
+function onTypeSelect(){
+  const type = $("#cfgType").value, d = cfgDefaults[type], prev = cfgDefaults[cfgPrevType] || {};
+  const body = $("#cfgBody").value, subj = $("#cfgSubject").value;
+  const untouched = (!body.trim() || body === prev.body) && (!subj.trim() || subj === prev.subject);
+  if(d && (untouched || confirm(`Replace the Subject and Body with the default ${TYPE_LABEL[type]} template?`))){
+    $("#cfgSubject").value = d.subject; $("#cfgBody").value = d.body; $("#cfgIsHtml").checked = d.is_html;
+  }
+  onTypeChange();
+}
+
 // Show the placeholders / behaviour that apply to the selected template type.
 function onTypeChange(){
   const type = $("#cfgType").value;
+  cfgPrevType = type;
   $("#cfgCcRow").style.display = (type === "exam") ? "block" : "none";   // CC is exam-only
   if(type === "shortlist"){
     $("#cfgHint").innerHTML = `Drafted in your mailbox when you move selected candidates to <b>Shortlist</b> — one group email. Placeholders: `
@@ -339,6 +384,7 @@ function fillSample(text){
     .replaceAll("{job_title}", PREVIEW_SAMPLE.job_title)
     .replaceAll("{company}", $("#cfgCompany").value||"")
     .replaceAll("{deadline}", PREVIEW_SAMPLE.deadline)
+    .replaceAll("{signature}", mySignature($("#cfgType").value, html))
     .replaceAll("{candidates}", html ? PREVIEW_SAMPLE.candidates_html : PREVIEW_SAMPLE.candidates)
     .replaceAll("{link_document}", html ? PREVIEW_SAMPLE.link_document_html : PREVIEW_SAMPLE.link_document);
   // custom variables → their actual values
@@ -357,6 +403,55 @@ function updatePreview(){
   $("#cfgPreviewFrame").srcdoc =
     `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111;padding:6px">`
     + `<div style="color:#555"><b>Subject:</b> ${subj}</div><hr>${bodyHtml}</div>`;
+}
+
+/* ---- signature: each user's label per email type ({signature}) ---- */
+let sigData = {}, mySig = {};   // {type: {body, saved, default}} — the user in the box / you
+function sigText(html){         // label → plain text, as the server does for plain-text emails
+  return (html||"").split(/<br\s*\/?>/i)
+    .map(p => new DOMParser().parseFromString(p, "text/html").body.textContent.replace(/\s+/g, " ").trim())
+    .filter(Boolean).join("\n");
+}
+function mySignature(type, html){
+  const body = (mySig[type]||{}).body || "";
+  return html ? body : sigText(body);
+}
+async function loadSignatures(){
+  try {
+    const r = await (await fetch(`/api/signatures/${$("#sigUser").value}`)).json();
+    if(!r.ok) throw new Error(r.error||"load failed");
+    sigData = r.signatures;
+  } catch(e){ sigData = {}; toast("Could not load the signature: "+e, 6000); }
+  showSignature();
+}
+function showSignature(){
+  const s = sigData[$("#sigType").value] || {body:"", saved:false};
+  $("#sigBody").value = s.body;
+  $("#sigState").textContent = s.saved ? "— saved" : "— default from the profile";
+  updateSigPreview();
+}
+function updateSigPreview(){
+  $("#sigPreviewFrame").srcdoc = `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;`
+    + `color:#111;padding:6px;line-height:1.5">${$("#sigBody").value}</div>`;
+}
+async function saveSignature(reset){
+  const uid = Number($("#sigUser").value), type = $("#sigType").value;
+  const btn = $("#sigSaveBtn"); btn.disabled = true;
+  try {
+    const r = await (await fetch(`/api/signatures/${uid}`, {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type, body: reset ? "" : $("#sigBody").value})})).json();
+    if(!r.ok) throw new Error(r.error||"save failed");
+    sigData = r.signatures;
+    if(uid === ME_ID){ mySig = sigData; updatePreview(); }
+    showSignature();
+    toast(`${TYPE_LABEL[type]} signature ${reset ? "is back to the default" : "saved"}.`, 2500);
+  } catch(e){ toast("Could not save the signature: "+e, 6000); }
+  finally { btn.disabled = false; }
+}
+function resetSignature(){
+  if(confirm(`Use the default ${TYPE_LABEL[$("#sigType").value]} signature (from the profile)?`))
+    saveSignature(true);
 }
 
 /* ---- save / delete ---- */
@@ -444,10 +539,14 @@ async function startEmailLogin(){
 
 /* ---- init ---- */
 async function init(){
+  $("#sigType").innerHTML = $("#cfgType").innerHTML;   // same email types, same labels
   await loadCfgFields();
+  await loadSignatures();                              // the Signature box starts on you
+  mySig = sigData;
   try {
     const r = await (await fetch("/api/email-templates")).json();
     cfgTemplates = r.templates || [];
+    cfgDefaults = r.defaults || {};
     cfgCurrentId = cfgTemplates.length ? cfgTemplates[0].id : null;
     renderTemplateList();
     cfgFocus("cfgBody");

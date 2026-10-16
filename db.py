@@ -1333,6 +1333,31 @@ class Database:
             raise
         self.conn.commit()
 
+    def get_user_signatures(self, user_id: int) -> dict[str, str]:
+        """{email_type: label} the user saved; types without a row use the default."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT email_type, body FROM dbo.user_signatures WHERE user_id = ?",
+                    int(user_id))
+        return {t: b for t, b in cur.fetchall()}
+
+    def save_user_signature(self, user_id: int, email_type: str, body: str,
+                            actor: str | None = None) -> None:
+        """Replace one user's label for one email type; a blank body removes it
+        (back to the default)."""
+        cur = self.conn.cursor()
+        try:
+            cur.execute("DELETE FROM dbo.user_signatures WHERE user_id = ? AND email_type = ?",
+                        int(user_id), email_type)
+            if (body or "").strip():
+                cur.execute(
+                    "INSERT INTO dbo.user_signatures (user_id, email_type, body, updated_by, "
+                    f"updated_at) VALUES (?, ?, ?, ?, {THAI_NOW})",
+                    int(user_id), email_type, body, actor)
+        except Exception:
+            self.conn.rollback()
+            raise
+        self.conn.commit()
+
     def set_job_active(self, job_id: str, is_active: bool) -> None:
         self.conn.cursor().execute(
             "UPDATE dbo.jobs SET is_active = ? WHERE job_id = ?",

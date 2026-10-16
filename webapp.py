@@ -29,7 +29,7 @@ from db import (ALLOWED_MOVES, STAGE_LABELS, STAGES, Database, ensure_database,
 from email_kit import signature
 from email_kit.templates import (configure_store, delete_template, get_template,
                                  load_templates, render, render_group, render_interview,
-                                 save_template)
+                                 save_template, type_defaults)
 import phone
 import shortlist
 import evaluation
@@ -85,6 +85,15 @@ def _db_save_templates(templates: list[dict]) -> None:
 
 
 configure_store(_db_load_templates, _db_save_templates)
+
+
+# Each user's saved signature label per email type (fills a template's {signature}).
+def _db_load_signatures(user_id: int) -> dict[str, str]:
+    with Database(cfg) as db:
+        return db.get_user_signatures(user_id)
+
+
+signature.configure_label_store(_db_load_signatures)
 
 
 class ScrapeManager:
@@ -505,8 +514,14 @@ def index():
 
 @app.get("/email-templates")
 def email_templates_page():
-    """Config Email Template page — manage the per-stage email templates."""
-    return render_template("email_templates.html")
+    """Config Email Template page — manage the per-stage email templates. The
+    Signature box lists every active user for an Admin, only yourself for HR."""
+    if _is_admin():
+        with Database(cfg) as db:
+            sig_users = db.list_users(active_only=True)
+    else:
+        sig_users = [current_user()]
+    return render_template("email_templates.html", sig_users=sig_users)
 
 
 @app.get("/request")
@@ -1005,7 +1020,7 @@ def api_candidate_request_fields():
 # -- Email template config (Config Email Template panel) ------------------------
 @app.get("/api/email-templates")
 def api_email_templates_get():
-    return jsonify({"templates": load_templates()})
+    return jsonify({"templates": load_templates(), "defaults": type_defaults()})
 
 
 @app.get("/api/email-templates/fields")
@@ -1013,7 +1028,7 @@ def api_email_template_fields():
     """Placeholder fields HR can insert into a template: every applicants column
     (read live from the DB, so new columns appear automatically) plus the derived
     name/company/deadline fields. Powers the insert-field chips."""
-    derived = ["full_name_edit", "title", "title_name", "firstname",
+    derived = ["signature", "full_name_edit", "title", "title_name", "firstname",
                "job_title", "company", "deadline"]
     cols: list[str] = []
     try:
@@ -1041,6 +1056,57 @@ def api_email_template_delete():
     data = request.get_json(force=True)
     templates = delete_template(str(data.get("id", "")))
     return jsonify({"ok": True, "templates": templates})
+
+
+# -- Signature: each user's label per email type (the {signature} placeholder) ----
+_SIGNATURE_FORBIDDEN = ({"ok": False, "error": "You can only change your own signature."}, 403)
+
+
+def _may_edit_signature(user_id: int) -> bool:
+    """Everyone edits their own signature; an Admin edits anyone's."""
+    return _is_admin() or current_user()["user_id"] == user_id
+
+
+def _signatures_response(user_id: int):
+    """One user's label for every email type: the saved one or the default."""
+    with Database(cfg) as db:
+        user = db.get_user_by_id(user_id)
+        saved = db.get_user_signatures(user_id) if user else {}
+    if not user:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+    sigs = {}
+    for t in signature.EMAIL_TYPES:
+        default = signature.default_label(t, user)
+        sigs[t] = {"body": saved.get(t) or default, "saved": t in saved, "default": default}
+    return jsonify({"ok": True, "user_id": user_id, "signatures": sigs})
+
+
+@app.get("/api/signatures/<int:user_id>")
+def api_signatures_get(user_id: int):
+    if not _may_edit_signature(user_id):
+        return _SIGNATURE_FORBIDDEN
+    return _signatures_response(user_id)
+
+
+@app.post("/api/signatures/<int:user_id>")
+def api_signatures_save(user_id: int):
+    """Save one label: {type, body}. A blank body, or the default itself, removes the
+    saved one so the label follows the profile again."""
+    if not _may_edit_signature(user_id):
+        return _SIGNATURE_FORBIDDEN
+    data = request.get_json(force=True) or {}
+    email_type = str(data.get("type", ""))
+    if email_type not in signature.EMAIL_TYPES:
+        return jsonify({"ok": False, "error": "Unknown email type."}), 400
+    body = str(data.get("body") or "").strip()
+    with Database(cfg) as db:
+        user = db.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"ok": False, "error": "User not found."}), 404
+        if body == signature.default_label(email_type, user):
+            body = ""
+        db.save_user_signature(user_id, email_type, body, actor=_current_email())
+    return _signatures_response(user_id)
 
 
 @app.get("/api/email/login-status")

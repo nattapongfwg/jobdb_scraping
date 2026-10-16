@@ -350,6 +350,23 @@ BEGIN
             DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2)
     );
 END;
+
+-- Each user's signature "label" (name + contact lines, HTML) per email type
+-- (exam | shortlist | interview | offer). A template's {signature} becomes the
+-- sender's label for that template's type; no row = the default built from the
+-- user's profile (email_kit/signature.py default_label).
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'user_signatures')
+BEGIN
+    CREATE TABLE dbo.user_signatures (
+        user_id      INT            NOT NULL,
+        email_type   NVARCHAR(20)   NOT NULL,
+        body         NVARCHAR(MAX)  NOT NULL,
+        updated_by   NVARCHAR(300)  NULL,     -- dbo.users.email of the last editor
+        updated_at   DATETIME2      NOT NULL
+            DEFAULT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'SE Asia Standard Time' AS DATETIME2),
+        CONSTRAINT PK_user_signatures PRIMARY KEY (user_id, email_type)
+    );
+END;
 GO
 
 -- Seed full_name_edit from full_name_jobdb for any rows that don't have it yet
