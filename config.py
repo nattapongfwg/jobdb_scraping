@@ -91,6 +91,7 @@ class Config:
     reply_exam_dir: Path       # local OneDrive path: Email_Reply_Exam/<name>/ (résumé + reply files)
     debug_dir: Path
     profile_dir: Path      # persistent browser user-data dir (keeps the login)
+    browser_path: str      # Edge/Chrome exe for SEEK (blank = auto-detect; see scraper.py)
     storage_state: Path
     schema_sql: Path
     delay_min: float
@@ -231,6 +232,7 @@ def load_config() -> Config:
         reply_exam_dir=reply_exam_dir,
         debug_dir=(PROJECT_ROOT / "debug"),
         profile_dir=(PROJECT_ROOT / ".browser_profile"),
+        browser_path=os.getenv("SEEK_BROWSER", "").strip(),
         storage_state=(PROJECT_ROOT / "storage_state.json"),
         schema_sql=(PROJECT_ROOT / "schema.sql"),
         delay_min=_get_float("DELAY_MIN", 1.0),

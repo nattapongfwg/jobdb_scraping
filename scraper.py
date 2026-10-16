@@ -12,13 +12,19 @@ a warning and continue rather than crashing the whole run.
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import random
 import re
+import socket
+import subprocess
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from playwright.sync_api import (
     Browser,
@@ -128,6 +134,37 @@ def _contact_from_pdf(path: Path) -> tuple[str | None, str | None]:
     return email, phone
 
 
+# SEEK's sign-in page uses a Cloudflare "Verify you are human" check that fails
+# ("Verification failed") in a browser Playwright launched itself. So the scraper
+# starts the installed Edge/Chrome as a normal program and attaches to it over its
+# DevTools port, letting go while a person signs in (see manual_login).
+_SYSTEM_BROWSERS = (
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+)
+
+
+def _find_system_browser(override: str) -> str | None:
+    """SEEK_BROWSER from .env if set, else the first installed Edge/Chrome."""
+    if override:
+        if Path(override).is_file():
+            return override
+        log.warning("SEEK_BROWSER=%s not found; looking for Edge/Chrome instead.", override)
+    for candidate in _SYSTEM_BROWSERS:
+        path = Path(os.path.expandvars(candidate))
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 class SeekScraper:
     def __init__(self, cfg: Config, headed: bool = False) -> None:
         self.cfg = cfg
@@ -136,19 +173,27 @@ class SeekScraper:
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
+        self._proc: subprocess.Popen | None = None  # installed Edge/Chrome we started
+        self._cdp_url = ""                           # its DevTools endpoint
         self._detail_dumped = False  # one-time detail-panel dump for selector QA
         self._resume_net_logged = False  # one-time resume-modal dump for selector QA
 
     # -- lifecycle ----------------------------------------------------------
     def __enter__(self) -> "SeekScraper":
         self._pw = sync_playwright().start()
-        # A PERSISTENT context (on-disk user-data dir) keeps the full browser
-        # profile — cookies, localStorage, IndexedDB, and the Auth0 SSO session
+        # A PERSISTENT profile (on-disk user-data dir) keeps the full browser
+        # state — cookies, localStorage, IndexedDB, and the Auth0 SSO session
         # — so a manual login survives across runs. storage_state alone is not
         # enough for SEEK's Auth0 SPA (it does silent re-auth on load).
-        self.cfg.profile_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.debug_dir.mkdir(parents=True, exist_ok=True)
         self.cfg.resume_dir.mkdir(parents=True, exist_ok=True)
+        exe = _find_system_browser(self.cfg.browser_path)
+        if exe:
+            self._launch_system_browser(exe)
+            return self
+        log.warning("Edge/Chrome not found — using Playwright's Chromium. SEEK's "
+                    "'Verify you are human' check may fail; set SEEK_BROWSER in .env.")
+        self.cfg.profile_dir.mkdir(parents=True, exist_ok=True)
         self.context = self._pw.chromium.launch_persistent_context(
             user_data_dir=str(self.cfg.profile_dir),
             headless=not self.headed,
@@ -160,11 +205,72 @@ class SeekScraper:
 
     def __exit__(self, *exc: object) -> None:
         try:
-            if self.context:
+            if self._proc:
+                # Close our Edge/Chrome gracefully so it flushes the profile to disk.
+                try:
+                    self.browser.new_browser_cdp_session().send("Browser.close")
+                except Exception:  # noqa: BLE001 — already closed or detached
+                    pass
+                try:
+                    self._proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+            elif self.context:
                 self.context.close()  # flushes the profile to disk
         finally:
             if self._pw:
                 self._pw.stop()
+
+    def _launch_system_browser(self, exe: str) -> None:
+        """Start the installed Edge/Chrome with its own profile and a DevTools
+        port, then attach Playwright to it."""
+        # One profile per browser (e.g. .browser_profile_msedge): a profile can't
+        # be shared between Playwright's Chromium and a different Edge/Chrome version.
+        profile = self.cfg.profile_dir.with_name(f"{self.cfg.profile_dir.name}_{Path(exe).stem}")
+        profile.mkdir(parents=True, exist_ok=True)
+        port = _free_port()
+        self._cdp_url = f"http://127.0.0.1:{port}"
+        args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
+                "--no-first-run", "--no-default-browser-check"]
+        if not self.headed:
+            args.append("--headless=new")
+        # DEVNULL: the board reads our stdout until EOF, so the browser must not hold it.
+        self._proc = subprocess.Popen([*args, "about:blank"], stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                urllib.request.urlopen(f"{self._cdp_url}/json/version", timeout=2).close()
+                break
+            except OSError:
+                if self._proc.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError(f"{Path(exe).name} did not start (profile {profile}).")
+                time.sleep(0.5)
+        log.info("Using %s (profile %s).", Path(exe).name, profile.name)
+        self._attach()
+
+    def _attach(self) -> None:
+        """(Re)connect Playwright to our Edge/Chrome; prefer a signed-in SEEK tab."""
+        self.browser = self._pw.chromium.connect_over_cdp(self._cdp_url)
+        self.context = self.browser.contexts[0]
+        pages = self.context.pages
+        self.page = (next((p for p in pages if self._is_signed_in_url(p.url)), None)
+                     or (pages[0] if pages else self.context.new_page()))
+
+    def _devtools(self, path: str, method: str = "GET") -> Any:
+        """Call the browser's DevTools HTTP API (works while Playwright is detached)."""
+        req = urllib.request.Request(f"{self._cdp_url}{path}", method=method)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = resp.read()
+        try:
+            return json.loads(body)
+        except ValueError:
+            return None  # e.g. /json/close answers "Target is closing"
+
+    def _is_signed_in_url(self, url: str) -> bool:
+        """True for an employer-portal page that isn't part of the sign-in flow."""
+        return (urlparse(url or "").netloc == urlparse(self.cfg.seek_base_url).netloc
+                and not any(h in url.lower() for h in self._LOGIN_URL_HINTS))
 
     # -- helpers ------------------------------------------------------------
     def _pause(self) -> None:
@@ -337,6 +443,8 @@ class SeekScraper:
 
         Requires headed mode (a visible browser window).
         """
+        if self._proc:
+            return self._manual_login_detached()
         page = self.page
         try:
             page.goto(self._url(SELECTORS["login_path"]), wait_until="domcontentloaded", timeout=60000)
@@ -379,6 +487,61 @@ class SeekScraper:
         # the session is reused automatically on subsequent runs.
         log.info("Login detected. Session stored in the browser profile (%s).",
                  self.cfg.profile_dir.name)
+        return True
+
+    _MANUAL_LOGIN_MINUTES = 10
+
+    def _manual_login_detached(self) -> bool:
+        """manual_login for our own Edge/Chrome. Playwright lets go of the browser
+        and the sign-in page is opened through the DevTools HTTP API, so it never
+        runs under automation and SEEK's "Verify you are human" check can pass.
+        The person types the email/password (pre-filling needs Playwright attached).
+        """
+        try:
+            self.page.goto("about:blank")
+        except Exception:  # noqa: BLE001 — only tidies away a stale sign-in page
+            pass
+        self.browser.close()  # disconnects only; the browser window stays open
+        try:
+            stale = [t["id"] for t in self._devtools("/json/list") if t.get("type") == "page"]
+            self._devtools("/json/new?" + self._url(SELECTORS["login_path"]), method="PUT")
+            for target_id in stale:
+                self._devtools(f"/json/close/{target_id}")
+        except OSError as exc:
+            log.error("Could not open the sign-in page: %s", exc)
+            return False
+
+        email = self.cfg.seek_email or "the SEEK employer email"
+        log.info("=" * 64)
+        log.info("MANUAL LOGIN — a %s window is open on this PC's desktop:",
+                 Path(self._proc.args[0]).stem)
+        log.info("  1) Type the email %s and the password (SEEK_PASSWORD in .env).", email)
+        log.info("  2) Tick 'Verify you are human', then click 'Sign in' straight away.")
+        log.info("  3) Leave the window open; the scrape carries on by itself.")
+        log.info("Waiting up to %d minutes for the SEEK dashboard ...", self._MANUAL_LOGIN_MINUTES)
+        log.info("=" * 64)
+
+        deadline = time.monotonic() + self._MANUAL_LOGIN_MINUTES * 60
+        while time.monotonic() < deadline:
+            try:
+                tabs = self._devtools("/json/list")
+            except OSError:
+                log.error("The browser window was closed before sign-in finished.")
+                return False
+            if any(t.get("type") == "page" and self._is_signed_in_url(t.get("url", ""))
+                   for t in tabs):
+                break
+            time.sleep(2)
+        else:
+            self._attach()
+            log.error("Login not detected within %d minutes. See debug/manual_login_timeout.png",
+                      self._MANUAL_LOGIN_MINUTES)
+            self._screenshot("manual_login_timeout")
+            return False
+
+        time.sleep(3)  # let SEEK's post-login redirects settle before attaching
+        self._attach()
+        log.info("Login detected. Session stored in the browser profile.")
         return True
 
     # -- jobs ---------------------------------------------------------------

@@ -27,6 +27,12 @@ is therefore **single-session**: each run logs in interactively, then scrapes im
 - Always run scrapes with **`--headed`**. When the browser opens, **solve the CAPTCHA and
   click *Sign in*** (your email/password are pre-filled). The script then scrapes in the same
   session.
+- Since 2026-10, the "Verify you are human" box (Cloudflare) answers **"Verification failed"**
+  in a browser that Playwright launched. The scraper therefore starts the installed **Microsoft
+  Edge** (else Chrome; override with `SEEK_BROWSER` in `.env`) with its own profile
+  `.browser_profile_msedge/` and attaches to it. Before sign-in it detaches, so the sign-in page
+  is not under automation, and you **type the email/password yourself**. Once the dashboard
+  loads it reattaches and the scrape continues. Leave the window open.
 - Your login may show a **"Select an account"** page. Set **`ADVERTISER_ID`** in `.env` to the
   account that owns the jobs you want (e.g. `61193320`); the script forces that scope.
 - **Email & phone** aren't shown in the portal DOM — they're parsed from each downloaded

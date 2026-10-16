@@ -7,6 +7,7 @@ email_kit/email_template.json
 # Playwright session / browser state
 storage_state.json
 .browser_profile/
+.browser_profile_*/
 
 # Python
 .venv/
