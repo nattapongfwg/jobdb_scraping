@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field Mapping</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1f2328; --muted: #59636e; --line: #d1d9e0;
+    --head: #f6f8fa; --card: #ffffff; --accent: #0969da; --db: #6e7781;
+    --eval: #0969da; --offer: #1a7f37; --hl: rgba(255, 196, 0, .45); --hl-line: #d4a000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --text: #e6edf3; --muted: #9198a1; --line: #3d444d;
+      --head: #161b22; --card: #0d1117; --accent: #4493f8; --db: #8b949e;
+      --eval: #4493f8; --offer: #3fb950; --hl: rgba(255, 196, 0, .35); --hl-line: #e3b341;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 "Segoe UI", "Leelawadee UI", Tahoma, Arial, sans-serif;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 21px; margin: 48px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  ul { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  code {
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px;
+    background: var(--head); padding: 1px 5px; border-radius: 4px; white-space: nowrap;
+  }
+  .wrap { overflow-x: auto; }
+  table.map { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 14px; }
+  table.map th, table.map td { text-align: left; vertical-align: top; padding: 7px 10px; border: 1px solid var(--line); }
+  table.map th { background: var(--head); font-weight: 600; }
+  table.map tr.db-row td:nth-child(2) { color: var(--muted); }
+
+  /* number badges: blue = typed on screen, grey = taken from the database / automatic */
+  .b {
+    display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px;
+    border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;
+    font: 700 11px/1 "Segoe UI", Arial, sans-serif; vertical-align: middle; margin-right: 4px;
+  }
+  .b.db { background: var(--db); }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; margin: 10px 0 4px; }
+  .hint { background: var(--head); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+
+  /* relation highlight */
+  .hl { background: var(--hl) !important; outline: 2px solid var(--hl-line); outline-offset: 1px; border-radius: 3px; }
+  tr.hl { outline: none; }
+  tr.hl td { background: var(--hl) !important; }
+
+  /* two-column layout: screen on the left, output on the right */
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; margin: 12px 0 8px; }
+  @media (max-width: 900px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+  .cap { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; }
+
+  /* ---- app popup mock-up (the board's own light theme, like a screenshot) ---- */
+  .screen { border: 1px solid #c9b48c; border-radius: 12px; overflow: hidden; background: #efe7d6; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+  .screen .bar { background: #e2d6bd; padding: 6px 12px; font-size: 12px; color: #5e4c39; display: flex; gap: 6px; align-items: center; }
+  .screen .bar i { width: 10px; height: 10px; border-radius: 50%; background: #c9b48c; display: inline-block; }
+  .modal { background: #fffdf7; color: #2c2016; margin: 14px; border: 1px solid #d8c7a6; border-radius: 14px; padding: 18px; }
+  .modal h4 { margin: 0 0 4px; font-size: 16px; }
+  .modal .desc { font-size: 13px; color: #5e4c39; margin: 0 0 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .grid2 .full { grid-column: 1 / 3; }
+  .fld { border-radius: 6px; padding: 2px; }
+  .fld label { display: block; font-size: 10.5px; color: #8a7459; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
+  .fld .in {
+    border: 1px solid #d8c7a6; border-radius: 8px; background: #f7f1e3; color: #2c2016;
+    font-size: 13px; padding: 6px 9px; min-height: 31px; white-space: pre-line; overflow-wrap: anywhere;
+  }
+  .fld .in.sel::after { content: " ▾"; float: right; color: #8a7459; }
+  .fld .in.ro { background: #f0e7d4; color: #5e4c39; }
+  .fld .regen { font-size: 11px; color: #5e4c39; border: 1px solid #d8c7a6; border-radius: 7px; padding: 2px 8px; display: inline-block; margin-top: 4px; background: #f0e7d4; }
+  .modal .note { font-size: 11.5px; color: #8a7459; margin: 12px 0 0; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .btn { font-size: 13px; font-weight: 700; border-radius: 9px; padding: 7px 13px; }
+  .btn.ghost { border: 1px solid #d8c7a6; color: #5e4c39; }
+  .btn.main { background: linear-gradient(135deg, #b21f25, #8a191e); color: #fff; }
+
+  /* ---- Excel mock-up ---- */
+  .xl { border: 1px solid #c8c8c8; border-radius: 10px; overflow: hidden; background: #fff; color: #222; box-shadow: 0 8px 24px rgba(0,0,0,.10); margin-bottom: 18px; }
+  .xl .bar { background: #217346; color: #fff; padding: 6px 12px; font-size: 12.5px; overflow-wrap: anywhere; }
+  .xl table { border-collapse: collapse; width: 100%; font-size: 12.5px; table-layout: fixed; }
+  .xl td { border: 1px solid #d4d4d4; padding: 6px 7px; vertical-align: top; overflow-wrap: anywhere; }
+  .xl td.rh { background: #f3f3f3; color: #666; width: 30px; text-align: center; }
+  .xl td.lab { background: #fbe9d0; font-weight: 600; }
+  .xl td.val { background: #fff; }
+  .xl td.val small { display: block; color: #888; font-size: 10.5px; }
+  .xl .sheetnote { font-size: 11.5px; color: #666; padding: 6px 10px; background: #f7f7f7; border-top: 1px solid #ddd; }
+
+  /* ---- Outlook draft mock-up ---- */
+  .mail { border: 1px solid #c8c8c8; border-radius: 10px; overflow: hidden; background: #fff; color: #111; box-shadow: 0 8px 24px rgba(0,0,0,.10); }
+  .mail .bar { background: #0f6cbd; color: #fff; padding: 6px 12px; font-size: 12.5px; }
+  .mail .hdr { padding: 8px 12px; border-bottom: 1px solid #e3e3e3; font-size: 13px; }
+  .mail .hdr div { padding: 2px 0; }
+  .mail .hdr b { display: inline-block; width: 64px; color: #555; font-weight: 600; }
+  .mail .att { display: inline-block; border: 1px solid #cfd8cf; background: #f1f8f1; border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+  .mail .body { padding: 12px 14px; font-size: 13px; line-height: 1.55; }
+  .mail .body p { margin: 0 0 10px; }
+  .mail .body ul { margin: 2px 0 10px; }
+  .mail .body hr { border: none; border-top: 1px solid #bbb; margin: 10px 0; }
+  .v { border-radius: 3px; }
+  .mail a { color: #1155cc; }
+
+  /* ---- ER diagram ---- */
+  .er { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Field Mapping: Evaluation &amp; Offered</h1>
+<p class="muted">Which value goes where: screen, database, Excel and email. Updated 19 Oct 2026.</p>
+
+<p>When HR moves a candidate forward, a popup opens. On <b>Confirm</b>, the program reads the candidate from the database, builds the Excel form or the email, saves the popup values, then moves the stage. If the Excel or the email fails, the stage does not move. Emails are saved as an Outlook <b>draft</b> with "To" left empty.</p>
+
+<div class="legend">
+  <span><span class="b">4</span> Typed or picked on the screen</span>
+  <span><span class="b db">14</span> Taken from the database or filled automatically (not on the screen)</span>
+  <span><code>[applicants].[position]</code> = table <code>dbo.applicants</code>, column <code>position</code></span>
+</div>
+<p class="hint">Hover over (or tap) any number, field or table row to light up the same field on the screen, in the database, in Excel and in the email.</p>
+
+<!-- ============================ TABLE RELATIONS ============================ -->
+<h2>Table relations</h2>
+<p>All candidate data for both stages lives in one row of <code>[applicants]</code>. The other tables link to it by key.</p>
+<div class="wrap">
+<svg class="er" viewBox="0 0 960 500" role="img" aria-label="Table relations: applicants linked to jobs, requests, users, user_signatures and stage_history" font-family="Consolas, 'Cascadia Mono', monospace" font-size="12.5">
+<g fill="none" stroke="var(--muted)" stroke-width="1.4">
+<polyline points="240,78 330,78"/>
+<polyline points="240,198 285,198 285,98 330,98"/>
+<polyline points="630,58 700,58"/>
+<polyline points="630,118 665,118 665,248 700,248"/>
+<polyline points="900,228 930,228 930,398 900,398"/>
+</g>
+<text x="246" y="73" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">1</text>
+<text x="324" y="73" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">N</text>
+<text x="246" y="193" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">1</text>
+<text x="324" y="93" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">N</text>
+<text x="636" y="53" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">1</text>
+<text x="694" y="53" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">N</text>
+<text x="636" y="113" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">N</text>
+<text x="694" y="243" text-anchor="end" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">1</text>
+<text x="906" y="223" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">1</text>
+<text x="906" y="393" text-anchor="start" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700" fill="var(--muted)">N</text>
+<rect x="40" y="40" width="200" height="76" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>
+<path d="M40 68H240" stroke="var(--line)"/>
+<rect x="41" y="41" width="198" height="27" rx="7" fill="var(--head)"/>
+<text x="52" y="59" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[jobs]</text>
+<text x="52" y="82" fill="var(--text)">job_id</text>
+<text x="226" y="82" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">PK</text>
+<text x="52" y="102" fill="var(--text)">title</text>
+<rect x="40" y="160" width="200" height="176" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>
+<path d="M40 188H240" stroke="var(--line)"/>
+<rect x="41" y="161" width="198" height="27" rx="7" fill="var(--head)"/>
+<text x="52" y="179" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[requests]</text>
+<text x="52" y="202" fill="var(--text)">request_id</text>
+<text x="226" y="202" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">PK</text>
+<text x="52" y="222" fill="var(--text)">position</text>
+<text x="52" y="242" fill="var(--text)">company</text>
+<text x="52" y="262" fill="var(--text)">department</text>
+<text x="52" y="282" fill="var(--text)">section</text>
+<text x="52" y="302" fill="var(--text)">direct_supervisor</text>
+<text x="52" y="322" fill="var(--text)">buddy</text>
+<rect x="330" y="20" width="300" height="456" rx="8" fill="var(--card)" stroke="var(--accent)" stroke-width="2"/>
+<path d="M330 48H630" stroke="var(--line)"/>
+<rect x="331" y="21" width="298" height="27" rx="7" fill="var(--head)"/>
+<text x="342" y="39" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[applicants]</text>
+<text x="342" y="62" fill="var(--text)">application_id</text>
+<text x="560" y="62" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">PK</text>
+<text x="342" y="82" fill="var(--text)">job_id</text>
+<text x="560" y="82" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">FK</text>
+<text x="342" y="102" fill="var(--text)">request_id</text>
+<text x="560" y="102" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">FK</text>
+<circle cx="586" cy="98" r="8" fill="var(--eval)"/><text x="586" y="102" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<text x="342" y="122" fill="var(--text)">owner_email</text>
+<text x="560" y="122" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">FK</text>
+<text x="342" y="142" fill="var(--text)">name_title</text>
+<circle cx="586" cy="138" r="8" fill="var(--eval)"/><text x="586" y="142" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="138" r="8" fill="var(--offer)"/><text x="608" y="142" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="162" fill="var(--text)">full_name_edit</text>
+<circle cx="586" cy="158" r="8" fill="var(--eval)"/><text x="586" y="162" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="158" r="8" fill="var(--offer)"/><text x="608" y="162" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="182" fill="var(--text)">full_name_jobdb</text>
+<circle cx="586" cy="178" r="8" fill="var(--eval)"/><text x="586" y="182" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="178" r="8" fill="var(--offer)"/><text x="608" y="182" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="202" fill="var(--text)">position</text>
+<circle cx="586" cy="198" r="8" fill="var(--eval)"/><text x="586" y="202" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="198" r="8" fill="var(--offer)"/><text x="608" y="202" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="222" fill="var(--text)">role</text>
+<circle cx="586" cy="218" r="8" fill="var(--eval)"/><text x="586" y="222" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="218" r="8" fill="var(--offer)"/><text x="608" y="222" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="242" fill="var(--text)">company</text>
+<circle cx="586" cy="238" r="8" fill="var(--eval)"/><text x="586" y="242" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<text x="342" y="262" fill="var(--text)">department</text>
+<circle cx="586" cy="258" r="8" fill="var(--eval)"/><text x="586" y="262" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="258" r="8" fill="var(--offer)"/><text x="608" y="262" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="282" fill="var(--text)">section</text>
+<circle cx="586" cy="278" r="8" fill="var(--eval)"/><text x="586" y="282" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="278" r="8" fill="var(--offer)"/><text x="608" y="282" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="302" fill="var(--text)">interview_date</text>
+<circle cx="586" cy="298" r="8" fill="var(--eval)"/><text x="586" y="302" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<text x="342" y="322" fill="var(--text)">interviewer</text>
+<circle cx="586" cy="318" r="8" fill="var(--eval)"/><text x="586" y="322" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<circle cx="608" cy="318" r="8" fill="var(--offer)"/><text x="608" y="322" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="342" fill="var(--text)">recruiter_name</text>
+<circle cx="586" cy="338" r="8" fill="var(--eval)"/><text x="586" y="342" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<text x="342" y="362" fill="var(--text)">expect_salary</text>
+<circle cx="608" cy="358" r="8" fill="var(--offer)"/><text x="608" y="362" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="382" fill="var(--text)">ai_summary</text>
+<circle cx="608" cy="378" r="8" fill="var(--offer)"/><text x="608" y="382" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="402" fill="var(--text)">evaluation_date</text>
+<circle cx="586" cy="398" r="8" fill="var(--eval)"/><text x="586" y="402" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">E</text>
+<text x="342" y="422" fill="var(--text)">offer_date</text>
+<circle cx="608" cy="418" r="8" fill="var(--offer)"/><text x="608" y="422" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="442" fill="var(--text)">offered_stamped_date</text>
+<circle cx="608" cy="438" r="8" fill="var(--offer)"/><text x="608" y="442" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<text x="342" y="462" fill="var(--text)">offer_* (13 columns)</text>
+<circle cx="608" cy="458" r="8" fill="var(--offer)"/><text x="608" y="462" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="10.5" font-weight="700" fill="#fff">O</text>
+<rect x="700" y="20" width="200" height="136" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>
+<path d="M700 48H900" stroke="var(--line)"/>
+<rect x="701" y="21" width="198" height="27" rx="7" fill="var(--head)"/>
+<text x="712" y="39" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[stage_history]</text>
+<text x="712" y="62" fill="var(--text)">application_id</text>
+<text x="886" y="62" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">FK</text>
+<text x="712" y="82" fill="var(--text)">action</text>
+<text x="712" y="102" fill="var(--text)">from_value</text>
+<text x="712" y="122" fill="var(--text)">to_value</text>
+<text x="712" y="142" fill="var(--text)">actor</text>
+<rect x="700" y="190" width="200" height="136" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>
+<path d="M700 218H900" stroke="var(--line)"/>
+<rect x="701" y="191" width="198" height="27" rx="7" fill="var(--head)"/>
+<text x="712" y="209" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[users]</text>
+<text x="712" y="232" fill="var(--text)">user_id</text>
+<text x="886" y="232" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">PK</text>
+<text x="712" y="252" fill="var(--text)">email</text>
+<text x="712" y="272" fill="var(--text)">name</text>
+<text x="712" y="292" fill="var(--text)">firstname</text>
+<text x="712" y="312" fill="var(--text)">prefix</text>
+<rect x="700" y="360" width="200" height="96" rx="8" fill="var(--card)" stroke="var(--line)" stroke-width="1.2"/>
+<path d="M700 388H900" stroke="var(--line)"/>
+<rect x="701" y="361" width="198" height="27" rx="7" fill="var(--head)"/>
+<text x="712" y="379" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="var(--text)">[user_signatures]</text>
+<text x="712" y="402" fill="var(--text)">user_id</text>
+<text x="886" y="402" text-anchor="end" font-size="11" font-weight="700" fill="var(--muted)">FK</text>
+<text x="712" y="422" fill="var(--text)">email_type</text>
+<text x="712" y="442" fill="var(--text)">body</text>
+<g font-family="Segoe UI, Arial, sans-serif" font-size="12.5" fill="var(--text)">
+<circle cx="48" cy="378" r="8" fill="var(--eval)"/><text x="48" y="382" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">E</text><text x="62" y="382">used at Evaluation</text><circle cx="48" cy="404" r="8" fill="var(--offer)"/><text x="48" y="408" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">O</text><text x="62" y="408">used at Offered</text><text x="40" y="440" fill="var(--muted)">PK = primary key</text><text x="40" y="460" fill="var(--muted)">FK = links to another table</text><text x="40" y="480" fill="var(--muted)">1 → N = one to many</text></g></svg>
+</div>
+<ul>
+  <li><b>[jobs] 1 → N [applicants]</b> on <code>job_id</code>: the job posting gives the default Role (<code>[jobs].[title]</code>).</li>
+  <li><b>[requests] 1 → N [applicants]</b> on <code>request_id</code>: picking a hiring request copies its Position, Company, Department and Section onto the candidate.</li>
+  <li><b>[users] 1 → N [applicants]</b> on <code>owner_email</code> = <code>email</code>: the recruiter who owns the card.</li>
+  <li><b>[users] 1 → N [user_signatures]</b> on <code>user_id</code>: the logged-in user's signature for each email type.</li>
+  <li><b>[applicants] 1 → N [stage_history]</b> on <code>application_id</code>: one row each time the stage moves.</li>
+</ul>
+
+<!-- ============================ EVALUATION ============================ -->
+<h2>Stage: Evaluation</h2>
+<p>Interview → Evaluation. Creates <b>an Excel evaluation form</b> and <b>an email to the interviewer</b> with the form attached.</p>
+
+<div class="pair">
+  <div>
+    <p class="cap">Screen: Evaluation popup</p>
+    <div class="screen">
+      <div class="bar"><i></i><i></i><i></i>&nbsp;Pipeline board · Move to Evaluation</div>
+      <div class="modal">
+        <h4>📝 Evaluation form &amp; draft email</h4>
+        <p class="desc"><b>Mr. Somchai Jaidee</b> → Evaluation</p>
+        <div class="grid2">
+          <div class="fld full" data-k="e1"><label><span class="b">1</span>ชื่อ-นามสกุล (Name)</label><div class="in ro">Mr. Somchai Jaidee</div></div>
+          <div class="fld full" data-k="e2"><label><span class="b">2</span>ใบขอกำลังคน (Request)</label><div class="in sel">REQ-0012 · Software Engineer</div></div>
+          <div class="fld full" data-k="e3"><label><span class="b">3</span>Evaluation Template</label><div class="in sel">— Default form (Evaluation_Template.xlsx) —</div></div>
+          <div class="fld" data-k="e4"><label><span class="b">4</span>ตำแหน่งที่สมัคร (Position)</label><div class="in sel">Software Engineer</div></div>
+          <div class="fld" data-k="e5"><label><span class="b">5</span>บทบาท (Role)</label><div class="in">Java Developer</div></div>
+          <div class="fld" data-k="e6"><label><span class="b">6</span>บริษัท (Company)</label><div class="in sel">Freewill Solutions Co.,Ltd.</div></div>
+          <div class="fld" data-k="e7"><label><span class="b">7</span>ฝ่าย (Department)</label><div class="in sel">AiP</div></div>
+          <div class="fld" data-k="e8"><label><span class="b">8</span>แผนก (Section)</label><div class="in sel">DEVELOP</div></div>
+          <div class="fld" data-k="e9"><label><span class="b">9</span>วันที่สัมภาษณ์ (Interview date)</label><div class="in">15/10/2026</div></div>
+          <div class="fld" data-k="e10"><label><span class="b">10</span>ผู้สัมภาษณ์ (Interviewer)</label><div class="in">Anan Kittisak</div></div>
+          <div class="fld" data-k="e11"><label><span class="b">11</span>ผู้สรรหา (Recruiter)</label><div class="in">Pim</div></div>
+        </div>
+        <p class="note">On confirm: the candidate moves to Evaluation, the Excel form is generated, and an Outlook draft email is created.</p>
+        <div class="actions"><span class="btn ghost">Cancel</span><span class="btn main">Confirm &amp; create</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap">Output 1: Excel evaluation form (header rows 2–4)</p>
+    <div class="xl">
+      <div class="bar">📗 <span class="v" data-k="e8">DEVELOP</span>_Interview Evaluate Form for <span class="v" data-k="e1">Somchai Jaidee</span>.xlsx <span class="b" data-k="e3" title="Template">3</span></div>
+      <table>
+        <tr><td class="rh">2</td><td class="lab">ชื่อ-นามสกุล</td><td class="val" data-k="e1"><small>B2 <span class="b">1</span></small>Mr. Somchai Jaidee</td><td class="lab">ตำแหน่งที่สมัคร</td><td class="val" data-k="e4"><small>I2 <span class="b">4</span></small>Software Engineer</td><td class="lab">บทบาท</td><td class="val" data-k="e5"><small>N2 <span class="b">5</span></small>Java Developer</td></tr>
+        <tr><td class="rh">3</td><td class="lab">บริษัท</td><td class="val" data-k="e6"><small>B3 <span class="b">6</span></small>Freewill Solutions Co.,Ltd.</td><td class="lab">ฝ่าย</td><td class="val" data-k="e7"><small>I3 <span class="b">7</span></small>AiP</td><td class="lab">แผนก</td><td class="val" data-k="e8"><small>N3 <span class="b">8</span></small>DEVELOP</td></tr>
+        <tr><td class="rh">4</td><td class="lab">วันที่สัมภาษณ์</td><td class="val" data-k="e9"><small>B4 <span class="b">9</span></small>2026-10-15</td><td class="lab">ผู้สัมภาษณ์</td><td class="val" data-k="e10"><small>I4 <span class="b">10</span></small>Anan Kittisak</td><td class="lab">ผู้สรรหา</td><td class="val" data-k="e11"><small>N4 <span class="b">11</span></small>Pim</td></tr>
+      </table>
+      <div class="sheetnote">Only these 9 cells are filled. The rest of the form (scores, images, dropdowns) is copied from the template unchanged.</div>
+    </div>
+
+    <p class="cap">Output 2: Outlook draft to the interviewer</p>
+    <div class="mail">
+      <div class="bar">✉ Draft · saved in &lt;your prefix&gt;_Drafts</div>
+      <div class="hdr">
+        <div><b>To</b><span class="muted">(empty: HR picks the interviewer)</span></div>
+        <div><b>Subject</b>Interview Evaluation Form for <span class="v" data-k="e1">Mr. Somchai Jaidee</span> (<span class="v" data-k="e4">Software Engineer</span>)</div>
+        <div><b>Attached</b><span class="att" data-k="e8">📎 DEVELOP_Interview Evaluate Form for Somchai Jaidee.xlsx</span></div>
+      </div>
+      <div class="body">
+        <p><b>Dear Khun <span class="v" data-k="e10">Anan</span>,</b> <span class="b" data-k="e10">10</span></p>
+        <p>Evaluation form for <span class="v" data-k="e1">Mr. Somchai Jaidee</span> <span class="b" data-k="e1">1</span> as passed the interview as <span class="v" data-k="e4">Software Engineer</span> <span class="b" data-k="e4">4</span> position in <span class="v" data-k="e5">Java Developer</span> <span class="b" data-k="e5">5</span> role. (Following by attach file)</p>
+        <p>Return the evaluate form to HR <b style="background:#ffff00">within as soon as possible.</b></p>
+        <p>User Manual for Interview Evaluation form: 📄 <a>คู่มือการใช้งานแบบประเมินสัมภาษณ์งาน (User Manual…).pdf</a></p>
+        <p style="color:#555">Best regard, &lt;your signature&gt;</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Evaluation: field relations</h3>
+<div class="wrap">
+<table class="map">
+  <tr><th>#</th><th>Screen field</th><th>Popup starts with</th><th>Saved in database</th><th>Excel cell</th><th>Email</th></tr>
+  <tr data-k="e1"><td><span class="b">1</span></td><td>Name (read only)</td><td><code>[applicants].[name_title]</code> + <code>[applicants].[full_name_edit]</code> (else <code>[applicants].[full_name_jobdb]</code>)</td><td>– (not saved)</td><td>B2, file name</td><td>Subject, body</td></tr>
+  <tr data-k="e2"><td><span class="b">2</span></td><td>Request</td><td><code>[applicants].[request_id]</code></td><td><code>[applicants].[request_id]</code></td><td>–</td><td>–</td></tr>
+  <tr data-k="e3"><td><span class="b">3</span></td><td>Evaluation Template</td><td>Default form</td><td>– (a file in <code>files_evaluation/</code>)</td><td>Which Excel file is filled</td><td>–</td></tr>
+  <tr data-k="e4"><td><span class="b">4</span></td><td>Position</td><td><code>[applicants].[position]</code></td><td><code>[applicants].[position]</code></td><td>I2</td><td>Subject, body</td></tr>
+  <tr data-k="e5"><td><span class="b">5</span></td><td>Role</td><td><code>[applicants].[role]</code>, else <code>[jobs].[title]</code></td><td><code>[applicants].[role]</code></td><td>N2</td><td>Body</td></tr>
+  <tr data-k="e6"><td><span class="b">6</span></td><td>Company</td><td><code>[applicants].[company]</code></td><td><code>[applicants].[company]</code></td><td>B3</td><td>–</td></tr>
+  <tr data-k="e7"><td><span class="b">7</span></td><td>Department</td><td><code>[applicants].[department]</code></td><td><code>[applicants].[department]</code></td><td>I3</td><td>–</td></tr>
+  <tr data-k="e8"><td><span class="b">8</span></td><td>Section</td><td><code>[applicants].[section]</code></td><td><code>[applicants].[section]</code></td><td>N3, file name</td><td>Attachment name</td></tr>
+  <tr data-k="e9"><td><span class="b">9</span></td><td>Interview date</td><td><code>[applicants].[interview_date]</code>, else today</td><td><code>[applicants].[interview_date]</code>, <code>[applicants].[evaluation_date]</code></td><td>B4</td><td>–</td></tr>
+  <tr data-k="e10"><td><span class="b">10</span></td><td>Interviewer</td><td>Empty</td><td><code>[applicants].[interviewer]</code></td><td>I4</td><td>"Dear Khun &lt;first word&gt;"</td></tr>
+  <tr data-k="e11"><td><span class="b">11</span></td><td>Recruiter</td><td>Empty</td><td><code>[applicants].[recruiter_name]</code></td><td>N4</td><td>–</td></tr>
+</table>
+</div>
+<ul>
+  <li>Picking a <b>Request</b> <span class="b" data-k="e2">2</span> fills Position, Company, Department and Section from <code>[requests].[position]</code>, <code>[requests].[company]</code>, <code>[requests].[department]</code> and <code>[requests].[section]</code>.</li>
+  <li>The move also sets <code>[applicants].[stage]</code> = <code>evaluation</code> and <code>[applicants].[evaluation_stamped_date]</code> (first time only), and adds a <code>[stage_history]</code> row.</li>
+</ul>
+
+<!-- ============================ OFFERED ============================ -->
+<h2>Stage: Offered</h2>
+<p>Evaluation → Offered. Creates <b>the job offer confirmation email</b>. There is no Excel file at this stage. The email text is the "offer" template in Config Email Template.</p>
+
+<div class="pair">
+  <div>
+    <p class="cap">Screen: Offer popup</p>
+    <div class="screen">
+      <div class="bar"><i></i><i></i><i></i>&nbsp;Pipeline board · Move to Offered</div>
+      <div class="modal">
+        <h4>🎉 Job-offer confirmation &amp; draft email</h4>
+        <p class="desc"><b>Mr. Somchai Jaidee</b> → Offered</p>
+        <div class="grid2">
+          <div class="fld" data-k="o1"><label><span class="b">1</span>People Count</label><div class="in">1</div></div>
+          <div class="fld" data-k="o2"><label><span class="b">2</span>Type</label><div class="in sel">รับใหม่</div></div>
+          <div class="fld full" data-k="o3"><label><span class="b">3</span>New</label><div class="in">เข้า Implement Project &amp; Support Maintenance Product ของทีม</div></div>
+          <div class="fld" data-k="o4"><label><span class="b">4</span>Direct Supervisor</label><div class="in">Anan Kittisak</div></div>
+          <div class="fld" data-k="o5"><label><span class="b">5</span>Buddy</label><div class="in">Malee Sukjai</div></div>
+          <div class="fld" data-k="o6"><label><span class="b">6</span>Expected Salary</label><div class="in">35K</div></div>
+          <div class="fld" data-k="o7"><label><span class="b">7</span>Current Salary</label><div class="in">30K</div></div>
+          <div class="fld full" data-k="o8"><label><span class="b">8</span>Start Date</label><div class="in">30 days</div></div>
+          <div class="fld full" data-k="o9"><label><span class="b">9</span>Experience (headline, AI, editable)</label><div class="in">Java Developer ABC Co. 3 yrs, Junior Developer XYZ Co. 1 yr</div><span class="regen">↻ Regenerate</span></div>
+          <div class="fld full" data-k="o10"><label><span class="b">10</span>AI experience detail (2 bullet points)</label><div class="in">Builds Java back-office systems for banking clients.
+Designs SQL Server databases and REST APIs.</div><span class="regen">↻ Regenerate</span></div>
+          <div class="fld full" data-k="o11"><label><span class="b">11</span>Interviewer (from DB, editable)</label><div class="in">Anan Kittisak</div></div>
+          <div class="fld full" data-k="o12"><label><span class="b">12</span>ความเห็นผู้สัมภาษณ์</label><div class="in">1. ตอบคำถาม technical ได้ดี
+2.
+3.
+4. </div></div>
+          <div class="fld full" data-k="o13"><label><span class="b">13</span>ความเห็นฝ่าย Recruit</label><div class="in">1. มีความรู้ทาง technical ที่ดี เพียงพอต่อการทำงาน
+2. สามารถออกแบบ database ที่ซับซ้อนได้
+…
+6. สามารถเข้าออฟฟิศ 5 วันได้</div></div>
+        </div>
+        <p class="note">Department, Section, Role, Position &amp; Job Level come from the candidate record.</p>
+        <div class="actions"><span class="btn ghost">Cancel</span><span class="btn main">Confirm &amp; create draft</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="cap">Output: Outlook draft (offer confirmation)</p>
+    <div class="mail">
+      <div class="bar">✉ Draft · saved in &lt;your prefix&gt;_Drafts</div>
+      <div class="hdr">
+        <div><b>To</b><span class="muted">(empty: HR fills it)</span></div>
+        <div><b>Subject</b>ขอยืนยันข้อมูลเสนอจ้างพนักงาน <span class="v" data-k="o18">AiP</span>: <span class="v" data-k="o19">DEVELOP</span> (<span class="v" data-k="o17">Java Developer</span>) as of <span class="v" data-k="o22">19 Oct 2026</span></div>
+      </div>
+      <div class="body">
+        <p>Dear Job Offering Team,</p>
+        <p>ขอยืนยันข้อมูลเสนอจ้างพนักงาน <span class="v" data-k="o18">AiP</span>: <span class="v" data-k="o19">DEVELOP</span> (<span class="v" data-k="o17">Java Developer</span>) จำนวน <span class="v" data-k="o1">1</span> <span class="b" data-k="o1">1</span> คน (<span class="v" data-k="o2">รับใหม่</span> <span class="b" data-k="o2">2</span>)</p>
+        <p>
+          Name: <span class="v" data-k="o14">Mr. Somchai Jaidee</span> <span class="b db" data-k="o14">14</span><br>
+          Position: <span class="v" data-k="o15">Software Engineer</span> <span class="b db" data-k="o15">15</span><br>
+          Job Level : <span class="v" data-k="o16">2</span> <span class="b db" data-k="o16">16</span><br>
+          <span class="v" data-k="o2">New</span>: <span class="v" data-k="o3">เข้า Implement Project &amp; Support Maintenance Product ของทีม</span> <span class="b" data-k="o3">3</span><br>
+          Department: <span class="v" data-k="o18">AiP</span> <span class="b db" data-k="o18">18</span><br>
+          Section: <span class="v" data-k="o19">DEVELOP</span> <span class="b db" data-k="o19">19</span>
+        </p>
+        <p>
+          Direct Supervisor: <span class="v" data-k="o4">Anan Kittisak</span> <span class="b" data-k="o4">4</span><br>
+          Buddy: <span class="v" data-k="o5">Malee Sukjai</span> <span class="b" data-k="o5">5</span>
+        </p>
+        <p>
+          Expected Salary : <span class="v" data-k="o6">35K</span> <span class="b" data-k="o6">6</span><br>
+          Current Salary: <span class="v" data-k="o7">30K</span> <span class="b" data-k="o7">7</span><br>
+          Start Date: <span class="v" data-k="o8">30 days</span> <span class="b" data-k="o8">8</span>
+        </p>
+        <p style="margin-bottom:2px">Experience: <span class="v" data-k="o9">Java Developer ABC Co. 3 yrs, Junior Developer XYZ Co. 1 yr</span> <span class="b" data-k="o9">9</span></p>
+        <ul class="v" data-k="o10">
+          <li>Builds Java back-office systems for banking clients.</li>
+          <li>Designs SQL Server databases and REST APIs. <span class="b" data-k="o10">10</span></li>
+        </ul>
+        <p>Link: <a class="v" data-k="o20">Mr. Somchai Jaidee</a> <span class="b db" data-k="o20">20</span></p>
+        <hr>
+        <p>Interviewer : <span class="v" data-k="o11">Anan Kittisak</span> <span class="b" data-k="o11">11</span><br>
+          ความเห็นผู้สัมภาษณ์ : <span class="b" data-k="o12">12</span><br>
+          <span class="v" data-k="o12">1. ตอบคำถาม technical ได้ดี</span></p>
+        <p>ความเห็นฝ่าย Recruit : <span class="v" data-k="o21">Pim</span> <span class="b db" data-k="o21">21</span> <span class="b" data-k="o13">13</span><br>
+          <span class="v" data-k="o13">1. มีความรู้ทาง technical ที่ดี เพียงพอต่อการทำงาน<br>2. สามารถออกแบบ database ที่ซับซ้อนได้<br>…</span></p>
+        <hr>
+        <p>ช่องทางการสรรหา (Sourcing): JOB DB</p>
+        <p><b>Best regard,</b><br><span class="v" data-k="o23">&lt;your signature&gt;</span> <span class="b db" data-k="o23">23</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Offered: field relations</h3>
+<div class="wrap">
+<table class="map">
+  <tr><th>#</th><th>Screen field</th><th>Value comes from</th><th>Saved in database</th><th>Email line (placeholder)</th></tr>
+  <tr data-k="o1"><td><span class="b">1</span></td><td>People Count</td><td>Typed (default 1)</td><td><code>[applicants].[offer_people_count]</code></td><td>จำนวน … คน <code>{people_count}</code></td></tr>
+  <tr data-k="o2"><td><span class="b">2</span></td><td>Type</td><td>Picked (default รับใหม่)</td><td><code>[applicants].[offer_type]</code></td><td>(รับใหม่) <code>{offer_type}</code>; also New/Replace <code>{new_replace_label}</code>: ทดแทน = Replace, otherwise New</td></tr>
+  <tr data-k="o3"><td><span class="b">3</span></td><td>New / Replace reason</td><td>Typed (default: first option)</td><td><code>[applicants].[offer_new_replace]</code></td><td><code>{new_replace_text}</code></td></tr>
+  <tr data-k="o4"><td><span class="b">4</span></td><td>Direct Supervisor</td><td>Typed</td><td><code>[applicants].[offer_supervisor]</code></td><td><code>{supervisor}</code></td></tr>
+  <tr data-k="o5"><td><span class="b">5</span></td><td>Buddy</td><td>Typed</td><td><code>[applicants].[offer_buddy]</code></td><td><code>{buddy}</code></td></tr>
+  <tr data-k="o6"><td><span class="b">6</span></td><td>Expected Salary</td><td>Typed (default <code>[applicants].[expect_salary]</code>)</td><td><code>[applicants].[offer_expected_salary]</code></td><td><code>{expected_salary}</code></td></tr>
+  <tr data-k="o7"><td><span class="b">7</span></td><td>Current Salary</td><td>Typed (default "-")</td><td><code>[applicants].[offer_current_salary]</code></td><td><code>{current_salary}</code></td></tr>
+  <tr data-k="o8"><td><span class="b">8</span></td><td>Start Date</td><td>Typed</td><td><code>[applicants].[offer_start_date]</code></td><td><code>{start_date}</code></td></tr>
+  <tr data-k="o9"><td><span class="b">9</span></td><td>Experience (headline)</td><td>AI from <code>[applicants].[ai_summary]</code> or the résumé</td><td><code>[applicants].[offer_experience]</code></td><td><code>{experience}</code></td></tr>
+  <tr data-k="o10"><td><span class="b">10</span></td><td>AI experience detail</td><td>AI from <code>[applicants].[ai_summary]</code> or the résumé</td><td><code>[applicants].[offer_experience_ai]</code></td><td>Bullets <code>{experience_bullets}</code></td></tr>
+  <tr data-k="o11"><td><span class="b">11</span></td><td>Interviewer</td><td><code>[applicants].[interviewer]</code></td><td><code>[applicants].[interviewer]</code> (only if not empty)</td><td><code>{interviewer}</code></td></tr>
+  <tr data-k="o12"><td><span class="b">12</span></td><td>ความเห็นผู้สัมภาษณ์</td><td>Typed (default: empty list 1.–4.)</td><td><code>[applicants].[offer_interviewer_comments]</code></td><td><code>{interviewer_comments}</code></td></tr>
+  <tr data-k="o13"><td><span class="b">13</span></td><td>ความเห็นฝ่าย Recruit</td><td>Typed (default: 6 lines)</td><td><code>[applicants].[offer_recruiter_comments]</code></td><td><code>{recruiter_comments}</code></td></tr>
+  <tr class="db-row" data-k="o14"><td><span class="b db">14</span></td><td>– not on screen</td><td><code>[applicants].[name_title]</code> + <code>[applicants].[full_name_edit]</code></td><td>–</td><td>Name <code>{prefix_name}</code></td></tr>
+  <tr class="db-row" data-k="o15"><td><span class="b db">15</span></td><td>– not on screen</td><td><code>[applicants].[position]</code></td><td>–</td><td>Position <code>{position}</code></td></tr>
+  <tr class="db-row" data-k="o16"><td><span class="b db">16</span></td><td>– not on screen</td><td>Worked out from <code>[applicants].[position]</code> (Software Engineer = 2, Manager = 5, …)</td><td>–</td><td>Job Level <code>{job_level}</code></td></tr>
+  <tr class="db-row" data-k="o17"><td><span class="b db">17</span></td><td>– not on screen</td><td><code>[applicants].[role]</code>, else <code>[jobs].[title]</code></td><td>–</td><td>Subject, first line <code>{role}</code></td></tr>
+  <tr class="db-row" data-k="o18"><td><span class="b db">18</span></td><td>– not on screen</td><td><code>[applicants].[department]</code></td><td>–</td><td>Department <code>{department}</code></td></tr>
+  <tr class="db-row" data-k="o19"><td><span class="b db">19</span></td><td>– not on screen</td><td><code>[applicants].[section]</code></td><td>–</td><td>Section <code>{section}</code></td></tr>
+  <tr class="db-row" data-k="o20"><td><span class="b db">20</span></td><td>– not on screen</td><td>The candidate's Shortlists folder on OneDrive (not the database)</td><td>–</td><td>Link <code>{link}</code></td></tr>
+  <tr class="db-row" data-k="o21"><td><span class="b db">21</span></td><td>– not on screen</td><td><code>[users].[firstname]</code> of the logged-in user</td><td>–</td><td>ความเห็นฝ่าย Recruit : <code>{recruiter_firstname}</code></td></tr>
+  <tr class="db-row" data-k="o22"><td><span class="b db">22</span></td><td>– not on screen</td><td>Today's date</td><td>–</td><td>Subject "as of" <code>{today}</code></td></tr>
+  <tr class="db-row" data-k="o23"><td><span class="b db">23</span></td><td>– not on screen</td><td><code>[user_signatures].[body]</code> for the logged-in user, type "offer" (else built from <code>[users]</code>)</td><td>–</td><td>Best regard <code>{signature}</code></td></tr>
+</table>
+</div>
+<ul>
+  <li>The move also sets <code>[applicants].[stage]</code> = <code>offered</code>, <code>[applicants].[offer_date]</code> = today, <code>[applicants].[offered_stamped_date]</code> (first time only), and adds a <code>[stage_history]</code> row.</li>
+</ul>
+
+<!-- ============================ REPORT ============================ -->
+<h2>Excel report (Status Tracking export)</h2>
+<p>The Status Tracking export (<code>Report_Files/Report.xlsx</code>) also shows these stages. Row 2 of that file says which column holds which field.</p>
+<div class="wrap">
+<table class="map">
+  <tr><th>Report column</th><th>Value comes from</th><th>Filled at</th></tr>
+  <tr data-k="e6"><td>P – Company</td><td><code>[applicants].[company]</code></td><td>Evaluation <span class="b">6</span></td></tr>
+  <tr data-k="e7"><td>Q – Department</td><td><code>[applicants].[department]</code></td><td>Evaluation <span class="b">7</span></td></tr>
+  <tr data-k="e8"><td>R – Team</td><td><code>[applicants].[section]</code></td><td>Evaluation <span class="b">8</span></td></tr>
+  <tr data-k="e4"><td>S – Position</td><td><code>[applicants].[position]</code></td><td>Evaluation <span class="b">4</span></td></tr>
+  <tr data-k="e5"><td>T – Role</td><td><code>[applicants].[role]</code></td><td>Evaluation <span class="b">5</span></td></tr>
+  <tr data-k="e9"><td>Z – Interviewed</td><td><code>[applicants].[interview_date]</code> (shown as 22-Mar-26)</td><td>Evaluation <span class="b">9</span></td></tr>
+  <tr><td>AA – Offered</td><td><code>[applicants].[offered_stamped_date]</code>: the date the card moved to Offered</td><td>Offered (automatic)</td></tr>
+</table>
+</div>
+
+<!-- ============================ WATCH ============================ -->
+<h2>Things to watch</h2>
+<ul>
+  <li>The offer email takes Expected Salary <span class="b" data-k="o6">6</span> from <code>[applicants].[expect_salary]</code> (scraped), but the report uses <code>[applicants].[expect_salary_edit]</code> (edited by HR). The two can differ.</li>
+  <li>Reopening the Offer popup does not bring back what was typed before (Supervisor, Buddy, Start date, comments).</li>
+  <li>The Offer details (Supervisor, Buddy, Start date, salaries) are saved but are not in the Excel report.</li>
+  <li>To change Position, Department, Section or Role for an offer, move the candidate back to Evaluation and redo the form.</li>
+</ul>
+
+</main>
+<script>
+  // Hover/tap any element with data-k to highlight every element with the same key.
+  // A click keeps the highlight until the next click.
+  (function () {
+    let pinned = null;
+    const all = k => document.querySelectorAll('[data-k="' + k + '"]');
+    const clear = () => document.querySelectorAll('.hl').forEach(el => el.classList.remove('hl'));
+    const show = k => { clear(); all(k).forEach(el => el.classList.add('hl')); };
+    // a badge inside a keyed element belongs to that element
+    const keyOf = el => { const host = el.closest('[data-k]'); return host ? host.dataset.k : null; };
+    document.addEventListener('mouseover', e => { if (pinned) return; const k = keyOf(e.target); k ? show(k) : clear(); });
+    document.addEventListener('click', e => {
+      const k = keyOf(e.target);
+      if (!k || k === pinned) { pinned = null; clear(); return; }
+      pinned = k; show(k);
+    });
+  })();
+</script>
+</body>
+</html>
