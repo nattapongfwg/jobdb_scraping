@@ -17,7 +17,10 @@ from dotenv import load_dotenv
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+# The repository root (one level above src/): .env, the runtime folders (resume/,
+# logs/, debug/, Evaluation_Files/ …) and the HR workbooks live there, not in src/.
+SRC_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SRC_DIR.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -234,7 +237,7 @@ def load_config() -> Config:
         profile_dir=(PROJECT_ROOT / ".browser_profile"),
         browser_path=os.getenv("SEEK_BROWSER", "").strip(),
         storage_state=(PROJECT_ROOT / "storage_state.json"),
-        schema_sql=(PROJECT_ROOT / "schema.sql"),
+        schema_sql=(SRC_DIR / "models" / "schema.sql"),
         delay_min=_get_float("DELAY_MIN", 1.0),
         delay_max=_get_float("DELAY_MAX", 2.5),
         # Single shared "Recruit" delegated app. Client/tenant IDs are not secrets,

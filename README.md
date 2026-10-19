@@ -38,15 +38,37 @@ is therefore **single-session**: each run logs in interactively, then scrapes im
 - **Email & phone** aren't shown in the portal DOM — they're parsed from each downloaded
   **resume PDF** (via `pypdf`) and stored alongside name/applied-date.
 
+## Project layout
+
+All code lives in `src/` with an MVC split; `src/` is the import root (e.g.
+`from models.db import Database`, `from services import evaluation`). `.env`, the docs, the
+scripts, the HR workbooks and the runtime folders stay at the repo root (`config.PROJECT_ROOT`).
+
+```
+src/
+  webapp.py            builds the Flask app, registers the blueprints, serves
+  main.py              SEEK scraper CLI
+  config.py            loads .env (PROJECT_ROOT = repo root, SRC_DIR = src/)
+  make_eval_template.py
+  models/              data layer: db.py (SQL Server access), schema.sql
+  views/               what the browser gets: templates/ (Jinja pages), static/ (JS, CSS)
+  controllers/         Flask blueprints, one per area: auth, jobs, tracking, candidates,
+                       evaluation_offer, emails, users, hiring_requests (+ common.py helpers)
+  services/            business logic the routes call: scraper, scrape_manager, mailer,
+                       email_auth, email_kit/, summarizer, shortlist, evaluation, offer, report
+  utils/               small helpers: phone.py
+  resources/           data files: thai_universities.json, thai_majors.json
+```
+
 ## Architecture
 
 | File | Role |
 |------|------|
-| `config.py` | Loads `.env`; builds the SQL Server connection (named instance + Windows/SQL auth). |
-| `schema.sql` | Idempotent DDL: `dbo.jobs`, `dbo.applicants`. |
-| `db.py` | pyodbc connect, auto-creates DB + schema, `MERGE` upserts, `ping()`. |
-| `scraper.py` | Playwright login/session, job + applicant scraping, resume download. **Selectors at top.** |
-| `main.py` | CLI orchestrator. |
+| `src/config.py` | Loads `.env`; builds the SQL Server connection (named instance + Windows/SQL auth). |
+| `src/models/schema.sql` | Idempotent DDL: `dbo.jobs`, `dbo.applicants`. |
+| `src/models/db.py` | pyodbc connect, auto-creates DB + schema, `MERGE` upserts, `ping()`. |
+| `src/services/scraper.py` | Playwright login/session, job + applicant scraping, resume download. **Selectors at top.** |
+| `src/main.py` | CLI orchestrator. |
 
 ## Setup (Windows)
 
@@ -71,16 +93,16 @@ copy .env.example .env   # then edit .env if needed
 
 ```powershell
 # 1) Test DB + create database/tables (already verified working)
-.\.venv\Scripts\python.exe -c "import db; db.ping()"
+.\.venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'src'); from models import db; db.ping()"
 
 # 2) Pick a job ad by its TITLE and download all its resumes
-.\.venv\Scripts\python.exe main.py --headed --job-title "Software Implementer"
+.\.venv\Scripts\python.exe src\main.py --headed --job-title "Software Implementer"
 
 # 3) Small dry run (cap to 3 applicants)
-.\.venv\Scripts\python.exe main.py --headed --job-title "Software Implementer" --limit 3
+.\.venv\Scripts\python.exe src\main.py --headed --job-title "Software Implementer" --limit 3
 
 # 4) Full run — all open jobs, all applicants
-.\.venv\Scripts\python.exe main.py --headed
+.\.venv\Scripts\python.exe src\main.py --headed
 ```
 
 Flags:
@@ -114,7 +136,7 @@ In **SQL Server Management Studio** (or Azure Data Studio): connect to
 
 ## Maintenance notes
 - Re-runs **update** rows (keyed on `application_id`/`job_id`) — no duplicates.
-- All portal URLs/selectors live in the `SELECTORS` dict at the top of `scraper.py`. If SEEK
+- All portal URLs/selectors live in the `SELECTORS` dict at the top of `src/services/scraper.py`. If SEEK
   changes its markup, run `--discover` and update that one block; the scraper logs warnings
   and saves screenshots/HTML to `debug/` when a selector misses.
 - `.env` and `.browser_profile/` hold secrets/session state and are git-ignored.

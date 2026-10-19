@@ -17,11 +17,10 @@ Evaluate_Original.xlsx is only READ; rerun this whenever the master form changes
 import re
 import sys
 import zipfile
-from pathlib import Path
 
-import evaluation   # for the 9 value-cell coordinates (CELL_MAP)
+from config import PROJECT_ROOT as ROOT
+from services import evaluation   # for the 9 value-cell coordinates (CELL_MAP)
 
-ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "Evaluate_Original.xlsx"
 DST = ROOT / "Evaluation_Template.xlsx"
 FORM_SHEET = "xl/worksheets/sheet2.xml"            # "Evaluate Interview form (Demo)"

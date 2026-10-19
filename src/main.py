@@ -12,8 +12,8 @@ import logging
 import sys
 
 from config import load_config
-from db import Database, ensure_database, ensure_schema
-from scraper import ScrapeStats, SeekScraper
+from models.db import Database, ensure_database, ensure_schema
+from services.scraper import ScrapeStats, SeekScraper
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

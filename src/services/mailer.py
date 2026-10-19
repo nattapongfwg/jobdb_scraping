@@ -28,7 +28,7 @@ from urllib.parse import quote
 import msal
 import requests
 
-from config import Config
+from config import PROJECT_ROOT, Config
 
 log = logging.getLogger(__name__)
 
@@ -44,8 +44,7 @@ FILES_SCOPES = ["Files.ReadWrite", "User.Read"]
 CALENDAR_SCOPES = ["Calendars.ReadWrite", "User.Read"]   # create the interview event
 # Union, requested at sign-in so one consent covers everything the app is granted.
 SCOPES = ["Mail.ReadWrite", "Mail.Send", "Files.ReadWrite", "Calendars.ReadWrite", "User.Read"]
-_ROOT = Path(__file__).resolve().parent
-CACHE_PATH = _ROOT / ".graph_token_cache.json"
+CACHE_PATH = PROJECT_ROOT / ".graph_token_cache.json"
 
 
 class MailerError(RuntimeError):

@@ -18,9 +18,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from config import PROJECT_ROOT
+
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
 # Windows-illegal filename chars (keep Thai and other unicode letters).
 _ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 

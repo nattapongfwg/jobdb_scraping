@@ -8,8 +8,8 @@ The body/subject text itself lives in email_template.json, editable in the web U
 """
 from __future__ import annotations
 
-from email_kit.signature import recruiter_firstname
-from email_kit.templates import render_offer
+from services.email_kit.signature import recruiter_firstname
+from services.email_kit.templates import render_offer
 
 # Type dropdown value (Thai) -> the New/Replace label shown in the email.
 NEW_LABELS = {"รับใหม่": "New", "ทดแทน": "Replace"}

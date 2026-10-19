@@ -18,15 +18,16 @@ from pathlib import Path
 import requests
 from pypdf import PdfReader
 
+from config import PROJECT_ROOT, SRC_DIR
+
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = "gpt-5.4-nano"
 # Canonical Thai-university list ChatGPT maps a résumé's university onto.
-UNIVERSITIES_FILE = PROJECT_ROOT / "thai_universities.json"
+UNIVERSITIES_FILE = SRC_DIR / "resources" / "thai_universities.json"
 # Major/field-of-study options (powers the Major dropdown; free text still allowed).
-MAJORS_FILE = PROJECT_ROOT / "thai_majors.json"
+MAJORS_FILE = SRC_DIR / "resources" / "thai_majors.json"
 # The Sent-Exam summary is exactly 3 paragraphs of this many words each.
 PARAGRAPHS = 3
 MIN_WORDS_PER_PARA, MAX_WORDS_PER_PARA = 10, 20

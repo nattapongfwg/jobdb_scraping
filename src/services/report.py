@@ -24,7 +24,8 @@ from pathlib import Path
 
 import openpyxl
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+from config import PROJECT_ROOT
+
 REPORT_DIR = PROJECT_ROOT / "Report_Files"
 TEMPLATE_PATH = REPORT_DIR / "Report.xlsx"
 

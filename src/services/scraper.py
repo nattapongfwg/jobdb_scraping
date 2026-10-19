@@ -36,7 +36,7 @@ from playwright.sync_api import (
 )
 
 from config import Config
-from db import candidate_key
+from models.db import candidate_key
 
 log = logging.getLogger(__name__)
 

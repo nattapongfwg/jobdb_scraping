@@ -78,7 +78,7 @@ Fill in the real values. The ones that matter:
 ## 5. Test the database connection
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import db; db.ping()"
+.\.venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'src'); from models import db; db.ping()"
 ```
 
 This connects and creates the `jobdb_scraping` database + tables if they don't exist.
@@ -107,7 +107,7 @@ Day-to-day commands (PowerShell, in the project folder):
 
 How it works: a Scheduled Task named **"JobDB Recruitment Board"** runs `run_webapp.cmd`
 hidden **under your own account** at logon (so SQL Server Windows Auth, the Graph token
-cache and OneDrive keep working). The wrapper relaunches `webapp.py` within 5 s if it ever
+cache and OneDrive keep working). The wrapper relaunches `src/webapp.py` within 5 s if it ever
 crashes, and writes `logs\webapp.log` + `logs\service.log`.
 
 **Open the board to other computers on the office LAN** (optional):
@@ -132,12 +132,12 @@ be up.
 To run it in the foreground instead (debugging), stop the task first:
 ```powershell
 .\service.ps1 stop
-.\.venv\Scripts\python.exe webapp.py
+.\.venv\Scripts\python.exe src\webapp.py
 ```
 
 **The SEEK scraper** (always keep `--headed` so you can solve the CAPTCHA):
 ```powershell
-.\.venv\Scripts\python.exe main.py --headed --job-title "Software Implementer"
+.\.venv\Scripts\python.exe src\main.py --headed --job-title "Software Implementer"
 ```
 
 See `QUICKSTART.md` and `README.md` for full scraper usage and flags.
@@ -164,7 +164,7 @@ PC that points at the same database shares them.
   new password on the user's row in Manage users. HR can change their own password on
   **My profile** (they must type the current one first); everything else on their profile is
   view-only. Deactivating a user signs them out.
-- Sessions are signed with `.secret_key` (created automatically next to `webapp.py`,
+- Sessions are signed with `.secret_key` (created automatically in the project folder,
   not in Git). Set `SECRET_KEY` in `.env` instead if you prefer; changing it signs
   everyone out. `PORT` in `.env` changes the listening port (default 2757).
 
@@ -176,7 +176,7 @@ These are excluded from the repo; copy them from the old computer if you want th
 |------|---------------------|------------|
 | `.env` | Holds all secrets | Copy it over, or refill from `.env.example` |
 | `.graph_token_cache.json` | Outlook sign-in token | Copy it, **or** just click "Sign in to email" once in the UI |
-| `email_kit/email_template.json` | Your customised email templates | Copy it (otherwise sensible defaults regenerate automatically) |
+| `src/services/email_kit/email_template.json` | Your customised email templates | Copy it (otherwise sensible defaults regenerate automatically) |
 | `resume/`, `Email_Reply_Exam/`, `Shortlists/` | Already-scraped candidate files | Copy if you want history; otherwise re-scrape |
 | SQL Server data | The candidate database itself | Re-scrape on the new machine, **or** back up / restore the DB in SSMS |
 | `files_evaluation/` | Per-team interview evaluation forms (HR data; some name candidates) | Copy the folder; the Evaluation popup lists its `.xlsx` files as templates. Without it only the default form is offered |
@@ -199,7 +199,7 @@ The Excel evaluation templates (`Evaluate_Original.xlsx`, `Evaluation_Template.x
   Nothing is broken. Since 2026-09-09 the scraper detects this and opens the SEEK
   sign-in window by itself — tick "Verify you are human", sign in, and the scrape
   continues. If no window appears, log in once by hand from the project folder:
-  `.venv\Scripts\python.exe main.py --manual-login`, then click Scrape again. No board
+  `.venv\Scripts\python.exe src\main.py --manual-login`, then click Scrape again. No board
   restart is needed (the scraper is a fresh process per scrape).
 - **"Missing Graph config" when sending email** → the `GRAPH_*` values in `.env` are
   blank; fill them in and run `.\service.ps1 restart`.

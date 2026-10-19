@@ -19,10 +19,10 @@ For the human-facing version, see `INSTALL.md`. This file goes further: it expla
 A **recruitment pipeline tool** for Freewill Solutions HR, built on top of a SEEK /
 JobDB employer-portal scraper. Two halves:
 
-1. **Scraper** (`main.py` + `scraper.py`) — a Playwright browser automation that logs into
+1. **Scraper** (`src/main.py` + `src/services/scraper.py`) — a Playwright browser automation that logs into
    the SEEK employer portal, walks every candidate folder for a job, and stores applicants
    + résumés into a local **SQL Server** database.
-2. **HR web board** (`webapp.py` + `templates/` + `static/`) — a Flask app (themed
+2. **HR web board** (`src/webapp.py` + `src/controllers/` + `src/views/templates/` + `src/views/static/`) — a Flask app (themed
    "Recruit Alchemists", Fullmetal Alchemist styling) at **http://localhost:2757** where HR
    manages candidates through a branching pipeline, sends templated emails, generates Excel
    evaluation forms, creates Outlook calendar events, and gets AI résumé summaries.
@@ -34,17 +34,19 @@ Evaluation → Offered (moves are one-step, server-enforced).
 
 | File | Role |
 |------|------|
-| `main.py` | Scraper CLI entry point (argparse; `--headed`, `--job-id`, `--list-jobs-json`, …) |
-| `scraper.py` | Playwright scraping logic (login, folders, cards, résumé download) |
-| `webapp.py` | Flask app — all routes + the `ScrapeManager` / `EmailAuth` background managers |
-| `db.py` | SQL Server access (pyodbc), schema bootstrap, stage logic, all queries |
-| `config.py` | Loads `.env` into a `Config`; builds the ODBC connection string |
-| `mailer.py` | Microsoft Graph (delegated device-code) — send mail, create draft, create calendar event |
-| `email_kit/` | Email package: `templates.py` (editable named templates, persisted to `email_kit/email_template.json`) + `signature.py` (the shared recruiter signature) |
-| `summarizer.py` | AI résumé summaries via OpenAI chat completions (`requests`, no `openai` pkg) |
-| `evaluation.py` / `make_eval_template.py` | Excel evaluation-form generation (surgical zip edit, preserves images) |
-| `shortlist.py` / `offer.py` | Shortlist folder moves + OneDrive share links; offer step |
-| `schema.sql` | Idempotent `ALTER`s — applied automatically by `db.ensure_schema()` |
+| `src/main.py` | Scraper CLI entry point (argparse; `--headed`, `--job-id`, `--list-jobs-json`, …) |
+| `src/services/scraper.py` | Playwright scraping logic (login, folders, cards, résumé download) |
+| `src/webapp.py` | Flask app — builds the app, registers the blueprints, serves |
+| `src/controllers/` | The routes, one Flask blueprint per area (`auth`, `jobs`, `tracking`, `candidates`, `evaluation_offer`, `emails`, `users`, `hiring_requests`; shared helpers in `common.py`) |
+| `src/services/scrape_manager.py` / `email_auth.py` | The `ScrapeManager` / `EmailAuth` background managers |
+| `src/models/db.py` | SQL Server access (pyodbc), schema bootstrap, stage logic, all queries |
+| `src/config.py` | Loads `.env` into a `Config`; builds the ODBC connection string |
+| `src/services/mailer.py` | Microsoft Graph (delegated device-code) — send mail, create draft, create calendar event |
+| `src/services/email_kit/` | Email package: `templates.py` (editable named templates, persisted to `src/services/email_kit/email_template.json`) + `signature.py` (the shared recruiter signature) |
+| `src/services/summarizer.py` | AI résumé summaries via OpenAI chat completions (`requests`, no `openai` pkg) |
+| `src/services/evaluation.py` / `src/make_eval_template.py` | Excel evaluation-form generation (surgical zip edit, preserves images) |
+| `src/services/shortlist.py` / `offer.py` | Shortlist folder moves + OneDrive share links; offer step |
+| `src/models/schema.sql` | Idempotent `ALTER`s — applied automatically by `db.ensure_schema()` |
 
 ---
 
@@ -63,11 +65,11 @@ Evaluation → Offered (moves are one-step, server-enforced).
   On native Windows PowerShell the equivalent is `.\.venv\Scripts\python.exe script.py`.
 - **The repo contains code only.** These are git-ignored and must be rebuilt/brought over:
   `.env` (secrets), `.venv/` (Python env), `.graph_token_cache.json` (Outlook sign-in),
-  `email_kit/email_template.json` (custom templates), `resume/`, `*.log`, the browser profile, and
+  `src/services/email_kit/email_template.json` (custom templates), `resume/`, `*.log`, the browser profile, and
   the SQL Server data itself.
 - **Web app port is 2757**, not 5000.
-- **Restart `webapp.py` after editing ANY backend `.py` file or `.env`.** Flask is not
-  reloading them for you. (Static-only edits to `static/` or `templates/` just need a hard
+- **Restart `src/webapp.py` after editing ANY backend `.py` file or `.env`.** Flask is not
+  reloading them for you. (Static-only edits to `src/views/static/` or `src/views/templates/` just need a hard
   browser refresh.)
 - **Detached webapp survives a naive kill on Windows.** A backgrounded webapp keeps holding
   port 2757 and serving the OLD code. To fully kill it:
@@ -91,7 +93,7 @@ Evaluation → Offered (moves are one-step, server-enforced).
   name/email edits, and the local résumé + `Email_Reply_Exam/<name>/` files. Consequences
   to keep in mind:
   - **Reply detection can't be handed off.** Check Replies only runs when the **local** DB
-    has `exam_sent_at` for that candidate (else it returns `skipped`, `webapp.py:420`). The
+    has `exam_sent_at` for that candidate (else it returns `skipped`, `api_candidate_check_reply` in `src/controllers/candidates.py`). The
     reply itself is in the shared Inbox and *visible* to everyone, but only the machine that
     **sent** the exam can detect/record it. So the person who sends an exam must also be the
     one who checks its replies and drives the rest of that candidate's pipeline.
@@ -166,11 +168,11 @@ Key settings (see §4 for what to put):
 
 > **Fastest path:** copy the existing `.env` from the old computer (USB/secure transfer)
 > rather than refilling by hand. Same for `.graph_token_cache.json` and
-> `email_kit/email_template.json` if you want sign-in state and custom templates preserved.
+> `src/services/email_kit/email_template.json` if you want sign-in state and custom templates preserved.
 
 ### Step 5 — Test the database connection
 ```powershell
-.\.venv\Scripts\python.exe -c "import db; db.ping()"
+.\.venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'src'); from models import db; db.ping()"
 ```
 `db.ping()` connects, **creates the `jobdb_scraping` database if missing**, and applies the
 schema. You want to see **"Connected OK"**. If it fails, see §6.
@@ -178,14 +180,14 @@ schema. You want to see **"Connected OK"**. If it fails, see §6.
 ### Step 6 — Run
 **Web board:**
 ```powershell
-.\.venv\Scripts\python.exe webapp.py
+.\.venv\Scripts\python.exe src\webapp.py
 ```
 Open **http://localhost:2757**.
 
 **Scraper** (always `--headed` so the user can solve the CAPTCHA):
 ```powershell
-.\.venv\Scripts\python.exe main.py --headed --login-only          # verify login works
-.\.venv\Scripts\python.exe main.py --headed --job-id <ID> --limit 3   # small dry run
+.\.venv\Scripts\python.exe src\main.py --headed --login-only          # verify login works
+.\.venv\Scripts\python.exe src\main.py --headed --job-id <ID> --limit 3   # small dry run
 ```
 
 ---
@@ -241,9 +243,9 @@ These are **the user's own accounts** — you cannot create them. Guide the user
 | Using Linux Python from WSL → pyodbc / auth errors | Use `./.venv/Scripts/python.exe` (the Windows venv), not a Linux interpreter. |
 | Scraper fails at login | Must run with `--headed` and solve the CAPTCHA manually. Headless session reuse is unreliable (Auth0) — that's expected. |
 | Thai names garbled / cp1252 crash | A subprocess wasn't launched with `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8`. |
-| "Missing Graph config" when emailing | `GRAPH_*` values blank in `.env`; fill them and restart `webapp.py`. |
+| "Missing Graph config" when emailing | `GRAPH_*` values blank in `.env`; fill them and restart `src/webapp.py`. |
 | Email features fail with 403 | Don't switch to app-only credentials. Use delegated device-code; click "Sign in to email" in the UI. |
-| Edited a `.py` but nothing changed | You didn't restart `webapp.py`. On Windows, a detached process may still hold port 2757 — `taskkill /F /PID <pid>` first (see §2). |
+| Edited a `.py` but nothing changed | You didn't restart `src/webapp.py`. On Windows, a detached process may still hold port 2757 — `taskkill /F /PID <pid>` first (see §2). |
 | Webapp serving old template/code | Same stale-detached-process issue — fully kill the PID on port 2757, then relaunch. |
 
 ---
@@ -252,9 +254,9 @@ These are **the user's own accounts** — you cannot create them. Guide the user
 
 - Make **surgical** changes — the codebase is already clean and the user prefers minimal,
   targeted edits over rewrites.
-- Schema changes go in `schema.sql` as **idempotent ALTERs** (applied by
+- Schema changes go in `src/models/schema.sql` as **idempotent ALTERs** (applied by
   `db.ensure_schema()`); the scraper upsert must never overwrite HR-edited columns.
-- After backend edits: **kill + restart `webapp.py`** and re-verify in the browser.
+- After backend edits: **kill + restart `src/webapp.py`** and re-verify in the browser.
 - `Evaluate_Original.xlsx` is the HR master template (kept in repo, untouched reference);
-  `make_eval_template.py` regenerates `Evaluation_Template.xlsx` from it. Excel edits are
+  `src/make_eval_template.py` regenerates `Evaluation_Template.xlsx` from it. Excel edits are
   surgical zip rewrites (never openpyxl — it would destroy the 8 embedded images).

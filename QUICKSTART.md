@@ -14,12 +14,12 @@ Type one of these and press **Enter**.
 
 **A small test first (only 3 applicants):**
 ```powershell
-.\.venv\Scripts\python.exe main.py --headed --job-title "Software Implementer" --limit 3
+.\.venv\Scripts\python.exe src\main.py --headed --job-title "Software Implementer" --limit 3
 ```
 
 **The full job (all applicants):**
 ```powershell
-.\.venv\Scripts\python.exe main.py --headed --job-title "Software Implementer"
+.\.venv\Scripts\python.exe src\main.py --headed --job-title "Software Implementer"
 ```
 
 > Change `"Software Implementer"` to whatever job ad (ประกาศงาน) title you want.
@@ -85,7 +85,7 @@ cd E:\jobdb_scraping
    inline** — changes save automatically.
 
 The pipeline stage, dates and CV flag live in new `dbo.applicants` columns and are **never
-overwritten by the scraper**, so re-running `main.py` keeps each candidate's progress.
+overwritten by the scraper**, so re-running `src/main.py` keeps each candidate's progress.
 
 ## One-time email setup (Microsoft Graph)
 Sending uses Microsoft Graph. In **Azure Portal → App registrations**, create an app with the
@@ -111,7 +111,7 @@ Until these are filled, the UI works but clicking *Send* shows a "Missing Graph 
 - **See all open jobs:** if you're unsure of a title, run with a wrong title on purpose and
   it will list them, e.g.:
   ```powershell
-  .\.venv\Scripts\python.exe main.py --headed --job-title "zzz"
+  .\.venv\Scripts\python.exe src\main.py --headed --job-title "zzz"
   ```
 - **Useful extras:** `--limit 10` (only first 10 applicants), `--no-resumes` (data only, no
   PDFs), `-v` (detailed logs).

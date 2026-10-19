@@ -23,7 +23,7 @@ Write-Host "==> [4/4] Installing Playwright Chromium" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "==> DONE. Next steps:" -ForegroundColor Green
 Write-Host "    1) Copy .env.example to .env and review settings (Windows Auth is default)."
-Write-Host "    2) Test DB:   .\.venv\Scripts\python.exe -c `"import db; db.ping()`""
-Write-Host "    3) Dry run:   .\.venv\Scripts\python.exe main.py --headed --job-id 91934584 --limit 3"
+Write-Host "    2) Test DB:   .\.venv\Scripts\python.exe -c `"import sys; sys.path.insert(0, 'src'); from models import db; db.ping()`""
+Write-Host "    3) Dry run:   .\.venv\Scripts\python.exe src\main.py --headed --job-id 91934584 --limit 3"
 Write-Host "       (solve the CAPTCHA in the browser window that opens)"
-Write-Host "    4) Full run:  .\.venv\Scripts\python.exe main.py --headed"
+Write-Host "    4) Full run:  .\.venv\Scripts\python.exe src\main.py --headed"

@@ -112,7 +112,7 @@ For HTTPS, put **Nginx** in front as a reverse proxy (`proxy_pass http://127.0.0
 with IT's certificate.
 
 **Startup:** a **systemd** service (e.g. `/etc/systemd/system/recruitment.service`) running
-`.venv/bin/python webapp.py` as a dedicated user, set to restart on failure.
+`.venv/bin/python src/webapp.py` as a dedicated user, set to restart on failure.
 This replaces `service.ps1`, which is Windows-only.
 
 ### Linux: changes needed
@@ -125,7 +125,7 @@ These are the reasons Linux takes longer. None is large, but each must be done a
 | **Startup script** | `service.ps1` / `.cmd` / `.vbs` are Windows-only. Write a systemd unit file. | Small |
 | **Résumé file paths** | The database stores each résumé as a Windows path (`E:\jobdb_multiuser\resume\…`). Run a one-time SQL update to change them to the Linux folder (e.g. `/opt/recruitment/resume/…`), the same way it was done on 2026-10-09. | Small |
 | **OneDrive folders** | There is **no official OneDrive client for Linux**. Shortlists and exam replies are saved into the synced OneDrive folder today. On Linux, the board should upload them through Microsoft Graph instead (it already signs in to Graph for email). | **Medium**: the largest change |
-| **OneDrive default path** | `config.py` builds the folder path with Windows backslashes; set `ONEDRIVE_BASE` / `REPLY_EXAM_DIR` explicitly or fix the default. | Small |
+| **OneDrive default path** | `src/config.py` builds the folder path with Windows backslashes; set `ONEDRIVE_BASE` / `REPLY_EXAM_DIR` explicitly or fix the default. | Small |
 | **Excel forms** | Evaluation and Report files are made with openpyxl (no Excel needed), so they work as-is. | None |
 
 ---

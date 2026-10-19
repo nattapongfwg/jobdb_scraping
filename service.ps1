@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Run the Recruitment board (webapp.py) as a per-user background task that starts at logon.
+  Run the Recruitment board (src\webapp.py) as a per-user background task that starts at logon.
 
 .DESCRIPTION
   Registers a Windows Scheduled Task that launches run_webapp.cmd hidden, under YOUR
   account, every time you log on. Running as your own user keeps SQL Server Windows
   Authentication, the Graph token cache and OneDrive paths working exactly as when
-  you start webapp.py by hand.
+  you start src\webapp.py by hand.
 
   Per-copy settings come from this folder's .env:
     SERVICE_NAME  task name   (blank = "JobDB Recruitment Board")

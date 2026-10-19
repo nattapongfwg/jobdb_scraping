@@ -30,15 +30,15 @@ import re
 import zipfile
 from pathlib import Path
 
-from email_kit.signature import signature_html
+from config import PROJECT_ROOT
+from services.email_kit.signature import signature_html
 
-PROJECT_ROOT = Path(__file__).resolve().parent
 EVAL_DIR = PROJECT_ROOT / "Evaluation_Files"          # generated forms land here (safe to clean)
 # The template build fills is `Evaluation_Template.xlsx` — derived from the HR master
 # `Evaluate_Original.xlsx` by make_eval_template.py (Demo sheet hidden, main sheet visible,
 # columns after T hidden). Both live in the PROJECT ROOT (not EVAL_DIR, which gets cleaned).
 # build_eval_xlsx only READS the template. To update the form: replace Evaluate_Original.xlsx
-# then rerun `python make_eval_template.py`. Keep the 9 header cells (see CELL_MAP) in place.
+# then rerun `python src/make_eval_template.py`. Keep the 9 header cells (see CELL_MAP) in place.
 MASTER_PATH = PROJECT_ROOT / "Evaluate_Original.xlsx"      # untouched HR reference
 TEMPLATE_PATH = PROJECT_ROOT / "Evaluation_Template.xlsx"  # processed; what build fills
 SHEET_XML = "xl/worksheets/sheet2.xml"   # fallback when no sheet carries the header labels

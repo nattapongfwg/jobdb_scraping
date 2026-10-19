@@ -47,12 +47,12 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Owner | The **first move out of Pending** (to Wait Pre-screen *or* Not Interest) makes the mover the owner. **Anyone can reassign** by clicking the badge. |
 | Sign-in | **Local accounts, not Microsoft 365.** Two roles: **Admin** (system) and **HR**. **Only an Admin creates HR accounts** (➕ Create HR in the top bar, `/users/new`); they can sign in at once. Self-registration was removed on 2026-10-07 — `/register` now just sends people to `/login` with a note. |
 | Profile | Your name in the top bar opens **/profile**. **Everyone can view their own account; HR is view-only** (an Admin changes HR details in Manage users) — **except HR can change their own password** after typing the current one (🔑 Change password box under the profile). An **Admin can edit their own** details and password there, and **Manage users lives on the Admin's /profile** (moved from Email Templates on 2026-10-07). The red logo + "Recruitment" links to the Job Postings page. |
-| Phone numbers | **Mobile `xxx-xxx-xxxx` (10 digits), Tel `x-xxxx-xxxx` (9 digits)**, digits only, `+66` → `0`. One rule: `phone.py` (server — users' mobile/tel in `db.save_user`, Add Candidate's phone) and `static/phone.js` (browser — `<input data-phone="mobile|tel">` formats while typing and blocks a wrong length). Used on My profile, Create HR, setup and Manage users. Mobile/Tel stay in the DB: they feed the `{signature}` line. |
+| Phone numbers | **Mobile `xxx-xxx-xxxx` (10 digits), Tel `x-xxxx-xxxx` (9 digits)**, digits only, `+66` → `0`. One rule: `src/utils/phone.py` (server — users' mobile/tel in `db.save_user`, Add Candidate's phone) and `src/views/static/phone.js` (browser — `<input data-phone="mobile|tel">` formats while typing and blocks a wrong length). Used on My profile, Create HR, setup and Manage users. Mobile/Tel stay in the DB: they feed the `{signature}` line. |
 | Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. **No strength rules** (any length, may equal the old one) — only not blank, typed twice to match, and HR must give the current one to change it. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
 | Scraping | **Admin and HR can both use 🔄 Scrape from SEEK** (changed 2026-10-16; it was Admin-only). Only one scrape runs at a time. When SEEK asks to sign in, the Edge window opens on the PC that runs the board (10.33.10.51), not on the PC of the person who clicked. |
-| Signature | Since 2026-10-16, `{signature}` in a template = the **sender's label** (name / Mobile, Tel / E-mail lines) **for that template's type**. "Best regard," and the company footer stay in the template. The labels are kept in `dbo.user_signatures`; with no saved label, a default is built from the user's profile. You edit them in the **✍️ Signature** box on Email Templates: everyone edits their own, and an Admin can pick any user. Picking a Type in the template editor fills in that type's default Subject + Body: the 2026-10-16 live templates, kept in `email_kit/templates.py` `DEFAULT_*`. It asks first if you've edited the Body. The migration `debug/migration_20261016/migrate_signatures.py` swapped the typed-in labels for `{signature}` and saved them as Na's (exam, shortlist, offer) and Term's (exam) labels; a backup JSON sits next to it. |
+| Signature | Since 2026-10-16, `{signature}` in a template = the **sender's label** (name / Mobile, Tel / E-mail lines) **for that template's type**. "Best regard," and the company footer stay in the template. The labels are kept in `dbo.user_signatures`; with no saved label, a default is built from the user's profile. You edit them in the **✍️ Signature** box on Email Templates: everyone edits their own, and an Admin can pick any user. Picking a Type in the template editor fills in that type's default Subject + Body: the 2026-10-16 live templates, kept in `src/services/email_kit/templates.py` `DEFAULT_*`. It asks first if you've edited the Body. The migration `debug/migration_20261016/migrate_signatures.py` swapped the typed-in labels for `{signature}` and saved them as Na's (exam, shortlist, offer) and Term's (exam) labels; a backup JSON sits next to it. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
 | Hosting (Phase 4) | **Started small (2026-10-07, at the user's request):** the board runs as a background task on this PC and is reachable on the office LAN (`HOST=0.0.0.0`, waitress); since 2026-10-09 it is the board in daily use. Still **not** done: a dedicated server, merging the per-PC databases, moving résumés to a shared disk. |
@@ -109,8 +109,8 @@ Open <http://localhost:2777> here, or from **other PCs on the office LAN**: <htt
 (Wi-Fi IP on 2026-10-07; `status` prints the current one). The existing Windows Firewall rule
 allowing `python.exe` on Domain networks already lets them in; `.\service.ps1 firewall` (needs
 Administrator) adds a narrower rule for just this port. **This is the real data** (since the
-2026-10-09 cut-over). Served by **waitress** (`requirements.txt`); `webapp.py` falls back to
-Flask's server if waitress is missing. Startup applies `schema.sql` (idempotent, so new columns and
+2026-10-09 cut-over). Served by **waitress** (`requirements.txt`); `src/webapp.py` falls back to
+Flask's server if waitress is missing. Startup applies `src/models/schema.sql` (idempotent, so new columns and
 tables appear automatically) and seeds one Admin row if the `users` table is empty.
 
 - **First visit** goes to `/setup` to create the Admin account, pre-filled from the seeded
@@ -123,7 +123,7 @@ tables appear automatically) and seeds one Admin row if the `users` table is emp
 - **See who exists:** `.venv\Scripts\python.exe debug\list_users.py`
 - **State on 2026-10-09:** three accounts — `Na` (Admin, prefix `N`), `Fame` and `Term` (HR).
 
-Restart `webapp.py` after editing any `.py` file (templates are cached too — Flask runs
+Restart the board (`.\service.ps1 restart`) after editing any `.py` file (templates are cached too — Flask runs
 with `debug=False`). Hard-refresh the browser (Ctrl+F5) after CSS changes.
 
 ### Tests and checks (`debug\` is gitignored)
@@ -146,10 +146,10 @@ Run each with `set PYTHONUTF8=1&& .venv\Scripts\python.exe debug\<file>` from a 
 | `ui_create_hr.py` | **browser check**: login page (no Register link), ➕ Create HR from the top bar, error + success, the new HR signs in; screenshots, cleans up |
 | `request_audit_test.py` | request created/edited by, stale-save 409 + overwrite, complete/reopen, HR creates/edits/deletes templates, sign-in + user management still Admin-only (30 checks) |
 | `manual_add_test.py` | Add Candidate: fields land in Pending, résumé stored + served, 'added' history, 409 duplicate / force, 400/404/401/413, phone stored as `xxx-xxx-xxxx`, bad phone 400 (28 checks) |
-| `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `webapp.py`, signs in via a signed cookie, tries bad first name / e-mail / phone (inline errors), types `+66 …` into Phone, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
+| `ui_add_candidate.py` | **browser check** (Playwright, headless): starts `src/webapp.py`, signs in via a signed cookie, tries bad first name / e-mail / phone (inline errors), types `+66 …` into Phone, adds a candidate with a PDF, screenshots to `debug\shots\`, cleans up |
 | `ui_tracking_stages.py` | **browser check**: Status Tracking Stage multi-select — counts match the DB, button text, remembered after reload, Escape / outside click, Clear filters, Select all (13 checks) |
 | `render_pages.py` | renders every page as Admin into `debug\rendered\` → then `node` syntax-checks the inline JS (see below) |
-| `boot_check.py` | starts `webapp.py` on a free port and confirms it answers |
+| `boot_check.py` | starts `src/webapp.py` on a free port and confirms it answers |
 | `ui_phone_fields.py` | **browser check**: Mobile/Tel format while typing (profile, Manage users row, `+66`), a wrong length blocks Create HR |
 | `make_dev_db.py` | copies the live DB into the dev DB (only when the dev DB does not exist) |
 
@@ -171,7 +171,23 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 
 ## 4. What was built, file by file
 
-### Database (`schema.sql`, all idempotent `IF … ADD/CREATE`)
+### Code layout (`src/`, moved 2026-10-19)
+- The code moved into **`src/` with an MVC layout**: `models/` (`db.py`, `schema.sql`), `views/`
+  (`templates/`, `static/`), `controllers/` (the routes), `services/` (scraper, scrape manager, mailer,
+  email auth, `email_kit/`, summarizer, shortlist, evaluation, offer, report), `utils/phone.py` and
+  `resources/` (the Thai university / major lists). Tree: README → *Project layout*.
+- The routes are split into **Flask blueprints in `src/controllers/`**: `auth`, `jobs`, `tracking`,
+  `candidates`, `evaluation_offer`, `emails`, `users`, `hiring_requests` (+ `common.py`: `cfg`,
+  `current_user`, `admin_required`, `STAGE_LIST`). `src/webapp.py` only builds the app, registers
+  them and serves. **URLs and behaviour are unchanged.**
+- Runtime data stays at the repo root (`.env`, `.secret_key`, `.graph_token_cache.json`, `resume/`,
+  `logs/`, `debug/`, `Evaluation_Files/`, `Report_Files/`, `files_evaluation/`, `files_email/`, the
+  `.xlsx` workbooks); the code finds it through `config.PROJECT_ROOT`. Run `src\webapp.py` /
+  `src\main.py` (`service.ps1` already does); imports use `src/` as the root (`from models.db import Database`).
+- The gitignored `email_kit/email_template.json` now belongs in `src/services/email_kit/`; git does not
+  move it, so move it by hand in an existing copy.
+
+### Database (`src/models/schema.sql`, all idempotent `IF … ADD/CREATE`)
 - `applicants.exam_sent_by` — prefix of whoever sent the exam (reply checks look in *their* mail folder).
 - `applicants.owner_email` — responsible recruiter (`users.email`).
 - `dbo.users` — `email, name, firstname, mobile, tel, prefix, role('admin'|'hr'), is_active, username, password_hash, is_approved, approved_by, approved_at, last_login_at`.
@@ -181,7 +197,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `dbo.requests.created_by / updated_by` (`users.email`), `updated_at`, `revision` (INT, +1 per save).
 - `dbo.requests.status` (`'doing'` default | `'completed'`), `completed_by`, `completed_at`.
 
-### `db.py`
+### `src/models/db.py`
 - `set_stage(aid, stage, date, exam_sent_by=None, actor=None)` — `UPDATE … WHERE stage = <what we read>`; returns `conflict=True` if someone moved the card first; claims the owner on the first move out of Pending; writes `stage_history`.
 - `claim_exam_send / undo_exam_claim` — reserve the card **before** Graph sends; `already_sent=True` blocks a second email unless `resend=True`.
 - `set_owner`, `list_history`.
@@ -191,7 +207,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   (same e-mail or same normalised name within the job); `set_resume`; `delete_candidate` (rollback only).
 - Users: `list_users, get_user_by_id/username/prefix/email, save_user (validates, hashes password), approve_user, touch_login, count_pending_users, admin_has_password, first_admin_without_password, seed_default_user`.
 - `hash_password / verify_password` — salted SHA-256.
-- `load_email_templates / save_email_templates` — the store behind `email_kit.templates`.
+- `load_email_templates / save_email_templates` — the store behind `services.email_kit.templates`.
 - `insert_request(..., actor)` records the creator. `update_request(..., actor, revision)` records the
   editor and only writes when `revision` still matches; otherwise returns `conflict=True` + the
   current row. `list_requests / get_request` share `_REQUEST_SELECT`, which joins `users` for
@@ -199,9 +215,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `set_request_status(rid, status, actor)` — `'completed'` records who/when (a second complete keeps
   the first completer); `'doing'` clears both. Does **not** bump `revision`, so an open edit form still saves.
 
-### `webapp.py`
-- `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
-- `@before_request _require_login` — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
+### Routes (`src/controllers/`, formerly `webapp.py`)
+- `current_user()` (`common.py`) — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
+- `@before_app_request _require_login` (`auth.py`) — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
 - `admin_required` on: `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
   `/api/scrape/*` is open to HR too since 2026-10-16. The SEEK window still opens on the PC
   running the board, so a SEEK sign-in has to be done there.
@@ -228,15 +244,15 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   so the web app never imports Playwright) — and the row is deleted again if the file cannot be saved.
   The form's First + Last name are joined into `full_name` by the page. `phone` must be 10 digits
   (a `+66` prefix becomes `0`) and is stored as `xxx-xxx-xxxx` (`_format_phone`); blank is fine.
-- `_user_prefix()` = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
-- Context processor injects `me` and `pending_users` into every template; `templates/_who.html` renders the top-bar identity.
-- `PORT` env var chooses the listening port.
+- `user_prefix()` (`common.py`) = signed-in user's prefix (the old per-PC "I am"/`user_prefix` setting is no longer used).
+- Context processor `_inject_identity` (`auth.py`) injects `me` and `pending_users` into every template; `_who.html` renders the top-bar identity.
+- `PORT` env var chooses the listening port (`src/webapp.py`).
 
-### `email_kit/`
+### `src/services/email_kit/`
 - `signature.py` — `set_active_recruiter(user)` (ContextVar); `recruiter_*()` read the active user → `.env` `RECRUITER_*` → defaults.
 - `templates.py` — `configure_store(load, save)`; the web app plugs the DB in; the JSON file is migrated on first load and then only holds settings.
 
-### Evaluation forms per team (`evaluation.py`, added 2026-09-30)
+### Evaluation forms per team (`src/services/evaluation.py`, added 2026-09-30)
 - The Evaluation popup has an **Evaluation Template** dropdown listing every `.xlsx` under
   `files_evaluation/` (grouped by team folder; gitignored, copy the folder by hand).
   Blank = the default `Evaluation_Template.xlsx`.
@@ -252,7 +268,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `POST /api/candidates/evaluation/preview` and `POST /api/candidates/offer/preview` take the same body as the
   real moves and are **read-only** (nothing saved, no file, no draft). The offer preview skips the Shortlists
   link lookup, so the candidate's name shows unlinked.
-- Same logic as Confirm: each pair shares `_eval_values` / `_offer_email_args` (+ `_candidate_names`), and
+- Same logic as Confirm: each pair (in `controllers/evaluation_offer.py`) shares `_eval_values` / `_offer_email_args` (+ `_candidate_names`), and
   `build_eval_email`, `eval_filename` and `render_offer` take an optional `wrap(key, html)` that only the preview
   passes (`_preview_mark` → `<span|div class="pv-f" data-f="key">`). Without `wrap` the output is unchanged.
 - `pipeline.html` (`PV` registry): blue-numbered values are click-to-edit (text, dropdown, date, multi-line;
@@ -261,10 +277,10 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
   `offerPayload()` build the body for both Confirm and the preview. `evaluation.CELL_LABELS` = the Thai labels
   beside the preview cells.
 
-### Templates / static
+### Templates / static (`src/views/templates/`, `src/views/static/`)
 - `login.html`, `create_hr.html`, `profile.html`, `setup.html`, `_account_fields.html`, `_who.html` (name → /profile, role, 🚪 Logout).
 - Every page's top bar: the brand is `<a class="brand" href="/">` (logo + "Recruitment" → Job Postings).
-- **Main menu = `templates/_nav.html`**, included in every signed-in page's top bar: 💼 Job Postings · 📊 Status Tracking ·
+- **Main menu = `_nav.html`**, included in every signed-in page's top bar: 💼 Job Postings · 📊 Status Tracking ·
   📝 Requests · ✉️ Email Templates · ➕ Create HR (Admin only). The active item comes from `request.path`
   (`/job/…` → Job Postings, `/request` → Requests). The old buttons on the Job Postings page are gone. Below 1240 px
   the menu moves to its own row. Logout shows 🚪. Browser check: `debug\ui_nav.py` (Admin + HR at 1700/1300/1100 px).
@@ -304,7 +320,7 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - The live repo still has a leftover `git stash` ("phase1 WIP") and an empty branch
   `feat/multiuser-phase1-safety`; both can be dropped.
 - An old June clone `E:\jobdb_scraping_upgrade` exists and is unrelated; leave it.
-- `email_kit/email_template.json` here holds settings only (`user_prefix` is
+- `src/services/email_kit/email_template.json` here holds settings only (`user_prefix` is
   ignored now). Templates come from the DB.
 - Deleting the last **exam**-type template leaves none (pre-existing behaviour); the
   send-exam button then reports "No email template configured". Add one back in the UI.
