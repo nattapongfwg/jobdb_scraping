@@ -484,7 +484,7 @@ tbody tr:hover { background: var(--panel-2); }
 .modal p code { background: var(--panel-2); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
 .modal label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
 .modal input[type=date], .modal input[type=time], .modal input[type=text], .modal input[type=email], .modal input[type=tel],
-.modal select, .modal input:not([type]), .modal textarea {
+.modal input[type=number], .modal select, .modal input:not([type]), .modal textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px;
   background: var(--bg-2); color: var(--ink); font-size: 14px; font-family: inherit;
 }
@@ -513,6 +513,67 @@ tbody tr:hover { background: var(--panel-2); }
 .modal .add-grid .field-err { display: block; height: 16px; line-height: 16px; margin-top: 3px; font-size: 12px;
                                color: var(--red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .modal .add-grid input.invalid, .modal .add-grid input.invalid:focus { border-color: var(--red); }
+
+/* ---- Evaluation / Offer popups: the form on the left, a live preview of the Excel form
+   and the Outlook draft on the right (each side scrolls on its own) ---- */
+.modal.pv-modal { width: min(1320px, 96vw); height: 92vh; display: flex; flex-direction: column; }
+.pv-modal > * { flex: none; }
+.pv-modal > .pv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(330px, 5fr) 7fr; gap: 20px; }
+.pv-form, .pv-pane { min-height: 0; overflow-y: auto; }
+.pv-form { padding: 2px 6px 2px 2px; }
+.pv-pane { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 16px; }
+@media (max-width: 1000px) {
+  .modal.pv-modal { display: block; height: auto; max-height: 92vh; overflow-y: auto; }
+  .pv-modal > .pv-body { display: block; }
+  .pv-form, .pv-pane { overflow: visible; }
+  .pv-pane { margin-top: 16px; }
+}
+.pv-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12.5px; color: var(--ink-soft); }
+.pv-head b { font-size: 14px; color: var(--ink); }
+.pv-status { margin-left: auto; font-size: 12px; color: var(--muted); }
+.pv-status.err { color: var(--red); }
+.pv-cap { margin: 14px 0 6px; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.pv-wait { padding: 14px; font-size: 13px; color: #777; }
+/* number badges: blue = you can edit it, grey = from the candidate record */
+.pv-b { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-right: 5px;
+        border-radius: 9px; background: #0969da; color: #fff; vertical-align: 1px;
+        font: 700 10.5px/1 system-ui, "Segoe UI", Arial, sans-serif; letter-spacing: 0; text-transform: none; }
+.pv-b.db { background: #6e7781; }
+.pv-mail-body .pv-b, .pv-xl-tmpl .pv-b { margin: 0 0 0 4px; }
+/* the Excel form mock */
+.pv-xl { border: 1px solid #c8c8c8; border-radius: 10px; overflow: hidden; background: #fff; color: #222; }
+.pv-xl-bar { background: #217346; color: #fff; padding: 7px 12px; font-size: 12.5px; overflow-wrap: anywhere; }
+.pv-xl-tmpl { padding: 5px 12px; font-size: 12px; color: #555; background: #f3f8f4; border-bottom: 1px solid #ddd; }
+.pv-xl table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12.5px; }
+.pv-xl td { border: 1px solid #d4d4d4; padding: 6px 7px; vertical-align: top; overflow-wrap: anywhere; }
+.pv-xl td.rh { width: 28px; background: #f3f3f3; color: #777; text-align: center; }
+.pv-xl td.lab { background: #fbe9d0; font-weight: 600; }
+.pv-xl td.val small { display: block; margin-bottom: 2px; color: #8a8a8a; font-size: 10.5px; }
+.pv-xl td.val.ed { cursor: pointer; }
+.pv-xl td.val.ed:hover { background: #eef5ff; }
+.pv-xl-note { padding: 6px 10px; font-size: 11.5px; color: #777; background: #f7f7f7; border-top: 1px solid #ddd; }
+/* the Outlook draft mock */
+.pv-mail { border: 1px solid #c8c8c8; border-radius: 10px; overflow: hidden; background: #fff; color: #111; }
+.pv-mail-bar { background: #0f6cbd; color: #fff; padding: 7px 12px; font-size: 12.5px; }
+.pv-mail-hdr { padding: 8px 12px; border-bottom: 1px solid #e3e3e3; font-size: 13px; }
+.pv-mail-hdr > div { padding: 2px 0 2px 72px; text-indent: -72px; overflow-wrap: anywhere; }
+.pv-mail-hdr b { display: inline-block; width: 72px; text-indent: 0; color: #555; font-weight: 600; }
+.pv-dim { color: #888; }
+.pv-att { display: inline-block; text-indent: 0; border: 1px solid #cfd8cf; background: #f1f8f1; border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+.pv-mail-body { padding: 12px 14px; overflow-wrap: anywhere; }
+.pv-mail-body.plain { white-space: pre-wrap; font-size: 13px; }
+.modal .pv-mail-body p { color: inherit; font-size: inherit; }   /* the email's own styles, not the popup's */
+.pv-mail a { color: #1155cc; }
+/* the marked values */
+.pv-f.ed { cursor: pointer; border-radius: 3px; box-shadow: inset 0 -1.5px 0 rgba(9,105,218,.55); }
+.pv-f.ed:hover, .pv-f.ed:focus-visible { background: rgba(9,105,218,.10); outline: none; }
+div.pv-f.ed { box-shadow: inset 2px 0 0 rgba(9,105,218,.55); padding-left: 4px; }
+.pv-f.ed:empty::before, .pv-f.db:empty::before { content: attr(data-ph); color: #999; font-style: italic; }
+.pv-hl { background: rgba(255,196,0,.40) !important; outline: 2px solid #d4a000; outline-offset: 1px; border-radius: 4px; }
+.modal .cfg-grid label.pv-hl { outline-offset: 3px; }
+.modal .pv-pane .pv-ed { width: auto; max-width: 100%; margin: 0; padding: 1px 5px; border: 1px solid #0969da; border-radius: 4px;
+                         background: #fffbe6; color: #111; font: inherit; box-shadow: 0 0 0 3px rgba(9,105,218,.15); }
+.modal .pv-pane textarea.pv-ed { display: block; width: 100%; min-height: 64px; line-height: 1.5; resize: vertical; }
 
 /* ---- toast ---- */
 .toast {

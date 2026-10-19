@@ -1395,6 +1395,111 @@ def api_evaluation_templates():
     return jsonify({"templates": evaluation.list_templates()})
 
 
+def _candidate_names(rec: dict) -> tuple[str, str]:
+    """(name_edit, prefix_name): the HR-edited name (else the scraped one) and the
+    same with the honorific in front ("Mr. Jane Doe")."""
+    name_edit = rec.get("full_name_edit") or rec.get("full_name_jobdb") or ""
+    title = rec.get("name_title") or ""
+    return name_edit, (f"{title} {name_edit}".strip() if title else name_edit)
+
+
+def _eval_values(cand: dict, data: dict) -> dict:
+    """The 9 Evaluation-form values (CELL_MAP keys) from the candidate record + the
+    popup body. Shared by the real move and its live preview so both always build
+    the same Excel form and draft email."""
+    def _g(k):
+        return str(data.get(k, "") or "").strip()
+    return {"full_name": _candidate_names(cand)[1], "position": _g("position"),
+            "role": _g("role"), "company": _g("company"), "department": _g("department"),
+            "section": _g("section"), "interview_date": _g("interview_date"),
+            "interviewer": _g("interviewer"), "recruiter": _g("recruiter")}
+
+
+def _offer_email_args(info: dict, data: dict) -> dict:
+    """build_offer_email arguments from the candidate record (get_offer_inputs) + the
+    popup body — every argument except template / link_url / wrap. Shared by the real
+    move and its live preview so both always build the same email."""
+    def _g(k):
+        return str(data.get(k, "") or "").strip()
+    name_edit, prefix_name = _candidate_names(info)
+    position = info.get("position") or ""
+    return dict(
+        prefix_name=prefix_name, position=position,
+        job_level=evaluation.POSITION_LEVEL.get(position, ""),
+        role=info.get("role") or info.get("job_title") or "",
+        department=info.get("department") or "", section=info.get("section") or "",
+        people_count=_g("people_count") or "1", offer_type=_g("offer_type") or "รับใหม่",
+        new_replace_text=_g("new_replace_text"), supervisor=_g("supervisor"),
+        buddy=_g("buddy"), expected_salary=_g("expected_salary"),
+        current_salary=_g("current_salary") or "-", start_date=_g("start_date"),
+        experience=_g("experience"), experience_detail=_g("experience_detail"),
+        interviewer=_g("interviewer") or (info.get("interviewer") or ""),
+        interviewer_comments=_g("interviewer_comments"),
+        recruiter_comments=_g("recruiter_comments"),
+        link_text=prefix_name or name_edit,
+        today_str=datetime.now().strftime("%d %b %Y"))
+
+
+def _preview_mark(key: str, html: str) -> str:
+    """Live-preview marker for one filled value: data-f names its field so the popup
+    can link it to the form and edit it in place. Block HTML (the experience bullet
+    list, a signature) gets a <div>; inline values a <span>."""
+    tag = "div" if re.search(r"<(?:ul|ol|p|div|table)\b", html or "", re.I) else "span"
+    return f'<{tag} class="pv-f" data-f="{key}">{html}</{tag}>'
+
+
+@app.post("/api/candidates/evaluation/preview")
+def api_candidate_evaluation_preview():
+    """Live preview for the Evaluation popup: the Excel header cells, the file name and
+    the draft email exactly as Confirm would build them from the current popup values
+    (same body as /api/candidates/evaluation). Read-only: saves nothing, creates no
+    file and no draft."""
+    data = request.get_json(force=True) or {}
+    aid = str(data.get("application_id", "")).strip()
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        cand = db.get_candidate(aid)
+    if not cand:
+        return jsonify({"ok": False, "error": "Candidate not found."}), 404
+    values = _eval_values(cand, data)
+    subject, body = evaluation.build_eval_email(
+        prefix_name=values["full_name"], interviewer=values["interviewer"],
+        position=values["position"], role=values["role"], wrap=_preview_mark)
+    template_id = str(data.get("template", "") or "").strip()
+    return jsonify({
+        "ok": True, "subject_html": subject, "body_html": body,
+        "file_html": evaluation.eval_filename(values["section"], _candidate_names(cand)[0],
+                                              wrap=_preview_mark),
+        "template": template_id or evaluation.TEMPLATE_PATH.name,
+        "cells": [{"cell": cell, "key": key, "label": evaluation.CELL_LABELS.get(key, key),
+                   "value": values.get(key, "")} for key, cell in evaluation.CELL_MAP.items()],
+    })
+
+
+@app.post("/api/candidates/offer/preview")
+def api_candidate_offer_preview():
+    """Live preview for the Offer popup: the offer-confirmation draft exactly as
+    Confirm would build it from the current popup values (same body as
+    /api/candidates/offer). The Shortlists share link is looked up only on Confirm, so
+    the preview shows the candidate's name unlinked. Read-only: saves nothing."""
+    data = request.get_json(force=True) or {}
+    aid = str(data.get("application_id", "")).strip()
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        info = db.get_offer_inputs(aid)
+    if not info:
+        return jsonify({"ok": False, "error": "Candidate not found."}), 404
+    offer_tmpl = next((t for t in load_templates() if t.get("type") == "offer"), None)
+    if offer_tmpl is None:
+        return jsonify({"ok": False, "error": "No offer email template configured."}), 400
+    subject, body = offer.build_offer_email(template=offer_tmpl, link_url="",
+                                            wrap=_preview_mark, **_offer_email_args(info, data))
+    return jsonify({"ok": True, "subject_html": subject, "body_html": body,
+                    "is_html": bool(offer_tmpl.get("is_html", True))})
+
+
 @app.post("/api/candidates/evaluation")
 def api_candidate_evaluation():
     """Move a candidate to 'Evaluation', generate the interview-evaluation Excel form
@@ -1416,19 +1521,12 @@ def api_candidate_evaluation():
         cand = db.get_candidate(aid)
         if not cand:
             return jsonify({"ok": False, "error": "Candidate not found."}), 404
-        name_edit = cand.get("full_name_edit") or cand.get("full_name_jobdb") or ""
-        title = cand.get("name_title") or ""
-        prefix_name = (f"{title} {name_edit}".strip() if title else name_edit)
-        section, interview_date = _g("section"), _g("interview_date")
-        position, role, interviewer = _g("position"), _g("role"), _g("interviewer")
-
+        name_edit, prefix_name = _candidate_names(cand)
         # 1) generate the filled Excel form (preserves the template's images/layout).
-        values = {
-            "full_name": prefix_name, "position": position, "role": role,
-            "company": _g("company"), "department": _g("department"),
-            "section": section, "interview_date": interview_date,
-            "interviewer": interviewer, "recruiter": _g("recruiter"),
-        }
+        #    _eval_values is shared with the popup's live preview.
+        values = _eval_values(cand, data)
+        section, interview_date = values["section"], values["interview_date"]
+        position, role, interviewer = values["position"], values["role"], values["interviewer"]
         out_name = evaluation.eval_filename(section, name_edit)
         out_path = evaluation.EVAL_DIR / out_name
         try:
@@ -1574,12 +1672,7 @@ def api_candidate_offer():
         info = db.get_offer_inputs(aid)
         if not info:
             return jsonify({"ok": False, "error": "Candidate not found."}), 404
-        name_edit = info.get("full_name_edit") or info.get("full_name_jobdb") or ""
-        title = info.get("name_title") or ""
-        prefix_name = (f"{title} {name_edit}".strip() if title else name_edit)
-        position = info.get("position") or ""
-        role = info.get("role") or info.get("job_title") or ""
-        job_level = evaluation.POSITION_LEVEL.get(position, "")
+        name_edit = _candidate_names(info)[0]
 
         try:
             mailer = GraphMailer(cfg)
@@ -1597,20 +1690,9 @@ def api_candidate_offer():
         if offer_tmpl is None:
             return jsonify({"ok": False, "error": "No offer email template configured."}), 400
 
-        subject, body = offer.build_offer_email(
-            template=offer_tmpl,
-            prefix_name=prefix_name, position=position, job_level=job_level, role=role,
-            department=info.get("department") or "", section=info.get("section") or "",
-            people_count=_g("people_count") or "1", offer_type=_g("offer_type") or "รับใหม่",
-            new_replace_text=_g("new_replace_text"), supervisor=_g("supervisor"),
-            buddy=_g("buddy"), expected_salary=_g("expected_salary"),
-            current_salary=_g("current_salary") or "-", start_date=_g("start_date"),
-            experience=_g("experience"), experience_detail=_g("experience_detail"),
-            interviewer=_g("interviewer") or (info.get("interviewer") or ""),
-            interviewer_comments=_g("interviewer_comments"),
-            recruiter_comments=_g("recruiter_comments"),
-            link_text=prefix_name or name_edit, link_url=link_url,
-            today_str=datetime.now().strftime("%d %b %Y"))
+        # _offer_email_args is shared with the popup's live preview.
+        subject, body = offer.build_offer_email(template=offer_tmpl, link_url=link_url,
+                                                **_offer_email_args(info, data))
         user_pfx = _user_prefix()
         try:
             mailer.create_draft(subject, body, is_html=bool(offer_tmpl.get("is_html", True)),

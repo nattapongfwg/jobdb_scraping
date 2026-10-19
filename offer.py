@@ -52,7 +52,7 @@ def build_offer_email(*, template: dict, prefix_name: str, position: str, job_le
                       experience: str, experience_detail: str, interviewer: str,
                       interviewer_comments: str, recruiter_comments: str,
                       link_text: str, link_url: str,
-                      today_str: str) -> tuple[str, str]:
+                      today_str: str, wrap=None) -> tuple[str, str]:
     """Return (subject, HTML body) for the job-offer confirmation draft, rendered from
     the HR-editable `template` (the "offer" Config Email Template).
 
@@ -60,6 +60,7 @@ def build_offer_email(*, template: dict, prefix_name: str, position: str, job_le
     is derived from NEW_LABELS. `experience` is the free-text headline on the
     "Experience:" line; `experience_detail` is the AI 2-paragraph text rendered as
     bullet points beneath it. `link_url` empty -> candidate name shown as plain text.
+    `wrap` marks each value for the popup's live preview (see templates.render_offer).
     """
     e = _html_escape
 
@@ -94,4 +95,4 @@ def build_offer_email(*, template: dict, prefix_name: str, position: str, job_le
         "recruiter_comments": _lines_to_html(recruiter_comments),
     }
     fields = {k: ("" if v is None else str(v)) for k, v in fields.items()}
-    return render_offer(template, fields=fields, blocks=blocks)
+    return render_offer(template, fields=fields, blocks=blocks, wrap=wrap)

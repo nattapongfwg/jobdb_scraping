@@ -667,11 +667,16 @@ def render_group(template: dict, *, job_title: str, candidates: list[dict],
     return subject, body
 
 
-def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, str]:
+def render_offer(template: dict, *, fields: dict, blocks: dict,
+                 wrap: Callable[[str, str], str] | None = None) -> tuple[str, str]:
     """Fill a job-offer template. `fields` are plain values (HTML-escaped into the body,
     raw in the subject); `blocks` are pre-rendered HTML fragments (experience bullets,
     link, comment lists) dropped in raw. The template's custom variables also fill (raw,
-    where they don't collide with a field/block). Returns (subject, body)."""
+    where they don't collide with a field/block). Returns (subject, body).
+
+    `wrap(key, html)` is for the Offer popup's live preview only: every filled value
+    is passed through it (so the popup can link and edit it) and both the subject
+    and a plain-text body come back as HTML."""
     is_html = bool(template.get("is_html", True))
     e = _esc if is_html else (lambda s: s)
     custom = {k: v for k, v in (template.get("custom_vars") or {}).items()
@@ -680,5 +685,13 @@ def render_offer(template: dict, *, fields: dict, blocks: dict) -> tuple[str, st
     body_fields = {**{k: e(v) for k, v in fields.items()}, **blocks,
                    "signature": sig_html if is_html else sig_text, **custom}
     subj_fields = {**fields, "signature": sig_text, **custom}
-    return (_fill(template.get("subject", ""), subj_fields),
-            _fill(template.get("body", ""), body_fields))
+    subject, body = template.get("subject", ""), template.get("body", "")
+    if wrap is not None:
+        subject = _esc(subject)
+        subj_fields = {k: wrap(k, _esc(v)) for k, v in subj_fields.items()}
+        if is_html:
+            body_fields = {k: wrap(k, v) for k, v in body_fields.items()}
+        else:
+            body = _esc(body)
+            body_fields = {k: wrap(k, _esc(v)) for k, v in body_fields.items()}
+    return _fill(subject, subj_fields), _fill(body, body_fields)

@@ -58,6 +58,19 @@ CELL_MAP = {
     "interviewer":   "I4",
     "recruiter":     "N4",
 }
+# The Thai label printed beside each value cell (same on every team form) — shown in
+# the Evaluation popup's live preview of the form.
+CELL_LABELS = {
+    "full_name":     "ชื่อ-นามสกุล",
+    "position":      "ตำแหน่งที่สมัคร",
+    "role":          "บทบาท",
+    "company":       "บริษัท",
+    "department":    "ฝ่าย",
+    "section":       "แผนก",
+    "interview_date": "วันที่สัมภาษณ์",
+    "interviewer":   "ผู้สัมภาษณ์",
+    "recruiter":     "ผู้สรรหา",
+}
 
 # Dropdown option lists (order preserved as the HR team provided them).
 # Positions carry a job level. Stored as (job_level, position_title) in HR's
@@ -125,22 +138,29 @@ def _html_escape(s: str) -> str:
 
 
 def build_eval_email(*, prefix_name: str, interviewer: str, position: str,
-                     role: str) -> tuple[str, str]:
+                     role: str, wrap=None) -> tuple[str, str]:
     """Build the (subject, HTML body) for the evaluation draft email — the format
     HR uses to ask the interviewer to fill the attached evaluation form.
-    `interviewer` is greeted by their first word ("Upakit" from "Upakit ...")."""
+    `interviewer` is greeted by their first word ("Upakit" from "Upakit ...").
+    `wrap(key, html)` is for the popup's live preview only: it marks every filled
+    value with its field key, and the subject then comes back as HTML too."""
     first = (interviewer or "").strip().split(" ")[0] if (interviewer or "").strip() else "team"
-    p_name, pos, rl = _html_escape(prefix_name), _html_escape(position), _html_escape(role)
-    subject = f"Interview Evaluation Form for {prefix_name} ({position})"
+    w = wrap or (lambda _key, html: html)
+    p_name = w("full_name", _html_escape(prefix_name))
+    pos, rl = w("position", _html_escape(position)), w("role", _html_escape(role))
+    if wrap is None:
+        subject = f"Interview Evaluation Form for {prefix_name} ({position})"
+    else:
+        subject = f"Interview Evaluation Form for {p_name} ({pos})"
     body = f"""<div style="font-family:'Aptos','Segoe UI',Arial,sans-serif;font-size:11pt;color:#000000;line-height:1.5">
-<p style="margin:0 0 14px"><b>Dear Khun {_html_escape(first)},</b></p>
+<p style="margin:0 0 14px"><b>Dear Khun {w("interviewer_first", _html_escape(first))},</b></p>
 <p style="margin:0 0 14px">Evaluation form for {p_name} as passed the interview as {pos} position in {rl} role. (Following by attach file)</p>
 <p style="margin:0 0 14px">Return the evaluate form to HR <span style="background-color:#ffff00"><b>within as soon as possible.</b></span></p>
 <p style="margin:0 0 14px"><i style="color:#c00000">"Apologies for the urgency, but if it's inconvenient in any way, please feel free to let us know."</i></p>
 <p style="margin:0 0 14px"><b>Note:</b> If you have any questions, feel free to ask me anytime. I'm always available for you Krab.</p>
 <p style="margin:0 0 2px">User Manual for Interview Evaluation form):</p>
 <p style="margin:0 0 18px">📄 <a href="{_html_escape(MANUAL_URL)}" style="color:#1155cc;text-decoration:underline">{_html_escape(MANUAL_LINK_TEXT)}</a></p>
-{signature_html()}
+{w("signature", signature_html())}
 </div>"""
     return subject, body
 
@@ -285,9 +305,13 @@ def _safe_filename(s: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "", str(s or "")).strip()
 
 
-def eval_filename(section: str, full_name_edit: str) -> str:
+def eval_filename(section: str, full_name_edit: str, wrap=None) -> str:
     """`<Section>_Interview Evaluate Form for <full_name_edit>.xlsx`. Empty section
-    falls back to 'NA' (matches the popup's live filename hint)."""
+    falls back to 'NA' (matches the popup's live filename hint). `wrap(key, html)`
+    (live preview only) returns the name as HTML with both parts marked."""
     sec = _safe_filename(section) or "NA"
     name = _safe_filename(full_name_edit) or "Candidate"
+    if wrap is not None:
+        return (f"{wrap('section', _html_escape(sec))}_Interview Evaluate Form for "
+                f"{wrap('full_name', _html_escape(name))}.xlsx")
     return f"{sec}_Interview Evaluate Form for {name}.xlsx"

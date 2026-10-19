@@ -243,6 +243,21 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 - `GET /api/evaluation/templates`; `POST /api/candidates/evaluation` takes `template`.
 - Test: `debug\eval_templates_test.py` (fills every form + the default).
 
+### Live preview in the Evaluation / Offer popups (added 2026-10-19)
+- Both popups have two panes: the form on the left, a **live preview** on the right. Evaluation shows the
+  Excel form's nine header cells + file name and the Outlook draft; Offer shows the draft. It rebuilds as you type.
+- `POST /api/candidates/evaluation/preview` and `POST /api/candidates/offer/preview` take the same body as the
+  real moves and are **read-only** (nothing saved, no file, no draft). The offer preview skips the Shortlists
+  link lookup, so the candidate's name shows unlinked.
+- Same logic as Confirm: each pair shares `_eval_values` / `_offer_email_args` (+ `_candidate_names`), and
+  `build_eval_email`, `eval_filename` and `render_offer` take an optional `wrap(key, html)` that only the preview
+  passes (`_preview_mark` → `<span|div class="pv-f" data-f="key">`). Without `wrap` the output is unchanged.
+- `pipeline.html` (`PV` registry): blue-numbered values are click-to-edit (text, dropdown, date, multi-line;
+  Enter or clicking away saves, Esc cancels, Ctrl+Enter in multi-line) and write into the popup field; grey
+  ones come from the candidate record. Hovering a field lights up every spot it appears. `evalPayload()` /
+  `offerPayload()` build the body for both Confirm and the preview. `evaluation.CELL_LABELS` = the Thai labels
+  beside the preview cells.
+
 ### Templates / static
 - `login.html`, `create_hr.html`, `profile.html`, `setup.html`, `_account_fields.html`, `_who.html` (name → /profile, role, 🚪 Logout).
 - Every page's top bar: the brand is `<a class="brand" href="/">` (logo + "Recruitment" → Job Postings).

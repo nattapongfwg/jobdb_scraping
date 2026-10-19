@@ -147,32 +147,47 @@
 
 <!-- evaluation modal (Move to Evaluation: fill form → generate Excel + draft email) -->
 <div class="modal-overlay" id="evalModal">
-  <div class="modal wide">
+  <div class="modal pv-modal">
     <h3>📝 Evaluation form &amp; draft email</h3>
     <p id="evalDesc"></p>
+    <div class="pv-body">
+    <div class="pv-form">
     <div class="cfg-grid">
-      <label style="grid-column:1/3">ชื่อ-นามสกุล (Name)
+      <label style="grid-column:1/3" data-k="full_name"><span class="pv-b db">1</span>ชื่อ-นามสกุล (Name)
         <input type="text" id="evName" readonly></label>
-      <label style="grid-column:1/3">ใบขอกำลังคน (Request) — auto-fills Position / Company / Department / Section
+      <label style="grid-column:1/3"><span class="pv-b">2</span>ใบขอกำลังคน (Request) — auto-fills Position / Company / Department / Section
         <select id="evRequest"></select></label>
-      <label style="grid-column:1/3">Evaluation Template — the Excel form to fill (from <code>files_evaluation</code>)
+      <label style="grid-column:1/3" data-k="template"><span class="pv-b">3</span>Evaluation Template — the Excel form to fill (from <code>files_evaluation</code>)
         <select id="evTemplate"></select></label>
-      <label>ตำแหน่งที่สมัคร (Position)
+      <label data-k="position"><span class="pv-b">4</span>ตำแหน่งที่สมัคร (Position)
         <select id="evPosition"></select></label>
-      <label>บทบาท (Role)
+      <label data-k="role"><span class="pv-b">5</span>บทบาท (Role)
         <input type="text" id="evRole" placeholder="role"></label>
-      <label>บริษัท (Company)
+      <label data-k="company"><span class="pv-b">6</span>บริษัท (Company)
         <select id="evCompany"></select></label>
-      <label>ฝ่าย (Department)
+      <label data-k="department"><span class="pv-b">7</span>ฝ่าย (Department)
         <select id="evDept"></select></label>
-      <label>แผนก (Section)
+      <label data-k="section"><span class="pv-b">8</span>แผนก (Section)
         <select id="evSection"></select></label>
-      <label>วันที่สัมภาษณ์ (Interview date)
+      <label data-k="interview_date"><span class="pv-b">9</span>วันที่สัมภาษณ์ (Interview date)
         <input type="date" id="evDate"></label>
-      <label>ผู้สัมภาษณ์ (Interviewer)
+      <label data-k="interviewer"><span class="pv-b">10</span>ผู้สัมภาษณ์ (Interviewer)
         <input type="text" id="evInterviewer" placeholder="e.g. Upakit"></label>
-      <label>ผู้สรรหา (Recruiter)
+      <label data-k="recruiter"><span class="pv-b">11</span>ผู้สรรหา (Recruiter)
         <input type="text" id="evRecruiter" placeholder="recruiter"></label>
+    </div>
+    </div>
+    <!-- live preview: rebuilt by /api/candidates/evaluation/preview as the form changes -->
+    <div class="pv-pane">
+      <div class="pv-head"><b>Live preview</b>
+        <span><span class="pv-b">4</span>click to edit</span>
+        <span><span class="pv-b db">1</span>from the candidate record</span>
+        <span class="pv-status"></span></div>
+      <div class="pv-cap">Excel form · header rows 2–4</div>
+      <div class="pv-xl"></div>
+      <div class="pv-cap">Outlook draft to the interviewer</div>
+      <div class="pv-mail"></div>
+    </div>
     </div>
     <p class="muted" style="font-size:12px;margin-top:14px">On confirm: the candidate moves to
       <b>Evaluation</b>, the Excel form is generated (<span id="evalFileHint"></span>), and an Outlook
@@ -186,48 +201,61 @@
 
 <!-- offer modal (Move to Offered: fill form → draft job-offer confirmation email) -->
 <div class="modal-overlay" id="offerModal">
-  <div class="modal wide">
+  <div class="modal pv-modal">
     <h3>🎉 Job-offer confirmation &amp; draft email</h3>
     <p id="offerDesc"></p>
+    <div class="pv-body">
+    <div class="pv-form">
     <div class="cfg-grid">
-      <label>People Count
+      <label data-k="people_count"><span class="pv-b">1</span>People Count
         <input type="number" id="ofCount" min="1" value="1"></label>
-      <label>Type
+      <label data-k="offer_type"><span class="pv-b">2</span>Type
         <select id="ofType"></select></label>
-      <label style="grid-column:1/3"><span id="ofNRLabel">New</span>
+      <label style="grid-column:1/3" data-k="new_replace_text"><span class="pv-b">3</span><span id="ofNRLabel">New</span>
         <input type="text" id="ofNRText" list="ofNRList" autocomplete="off"
                placeholder="pick or type…">
         <datalist id="ofNRList"></datalist></label>
-      <label>Direct Supervisor
+      <label data-k="supervisor"><span class="pv-b">4</span>Direct Supervisor
         <input type="text" id="ofSupervisor" placeholder="e.g. Tanapon Hemmala"></label>
-      <label>Buddy
+      <label data-k="buddy"><span class="pv-b">5</span>Buddy
         <input type="text" id="ofBuddy" placeholder="e.g. Natcha Rengthong"></label>
-      <label>Expected Salary
+      <label data-k="expected_salary"><span class="pv-b">6</span>Expected Salary
         <input type="text" id="ofExpSalary" placeholder="e.g. 25K"></label>
-      <label>Current Salary
+      <label data-k="current_salary"><span class="pv-b">7</span>Current Salary
         <input type="text" id="ofCurSalary" value="-"></label>
-      <label>Start Date
+      <label data-k="start_date"><span class="pv-b">8</span>Start Date
         <input type="text" id="ofStart" placeholder="e.g. 30 days"></label>
       <div style="grid-column:1/3">
-        <label>Experience (headline — 🧪 AI, editable)
+        <label data-k="experience"><span class="pv-b">9</span>Experience (headline — 🧪 AI, editable)
           <input type="text" id="ofExperience"
             placeholder="⚗️ Generating experience headline…"></label>
         <button type="button" class="btn tiny secondary" id="ofHeadlineRegen"
           onclick="regenerateOfferHeadline(this)" style="margin-top:6px">↻ Regenerate</button>
       </div>
       <div style="grid-column:1/3">
-        <label>AI experience detail — 2 bullet points (🧪 editable)
+        <label data-k="experience_bullets"><span class="pv-b">10</span>AI experience detail — 2 bullet points (🧪 editable)
           <textarea id="ofExperienceAI" rows="3" style="width:100%;resize:vertical"
             placeholder="⚗️ Generating experience summary…"></textarea></label>
         <button type="button" class="btn tiny secondary" id="ofExpRegen"
           onclick="regenerateOfferExperience(this)" style="margin-top:6px">↻ Regenerate</button>
       </div>
-      <label style="grid-column:1/3">Interviewer (from DB, editable)
+      <label style="grid-column:1/3" data-k="interviewer"><span class="pv-b">11</span>Interviewer (from DB, editable)
         <input type="text" id="ofInterviewer" placeholder="e.g. Natcha Rengthong, Tanapon Hemmala"></label>
-      <label style="grid-column:1/3">ความเห็นผู้สัมภาษณ์ (editable)
+      <label style="grid-column:1/3" data-k="interviewer_comments"><span class="pv-b">12</span>ความเห็นผู้สัมภาษณ์ (editable)
         <textarea id="ofInterviewComments" rows="5" style="width:100%;resize:vertical"></textarea></label>
-      <label style="grid-column:1/3">ความเห็นฝ่าย Recruit (editable)
+      <label style="grid-column:1/3" data-k="recruiter_comments"><span class="pv-b">13</span>ความเห็นฝ่าย Recruit (editable)
         <textarea id="ofRecruit" rows="6" style="width:100%;resize:vertical"></textarea></label>
+    </div>
+    </div>
+    <!-- live preview: rebuilt by /api/candidates/offer/preview as the form changes -->
+    <div class="pv-pane">
+      <div class="pv-head"><b>Live preview</b>
+        <span><span class="pv-b">4</span>click to edit</span>
+        <span><span class="pv-b db">14</span>from the candidate record</span>
+        <span class="pv-status"></span></div>
+      <div class="pv-cap">Outlook draft · offer confirmation</div>
+      <div class="pv-mail"></div>
+    </div>
     </div>
     <p class="muted" style="font-size:12px;margin-top:14px">On confirm: the candidate moves to
       <b>Offered</b>, the OneDrive Shortlists link is auto-attached, and an Outlook
@@ -710,6 +738,7 @@ function applyRequest(){
   fillSelect($("#evDept"), EVAL_OPTS.departments, req.department || "");
   fillSelect($("#evSection"), EVAL_OPTS.sections, req.section || "");
   $("#evSection").dispatchEvent(new Event("change"));   // refresh the filename hint
+  pvSchedule("eval", 0);
 }
 // Team evaluation forms under files_evaluation/ (fetched once per page load).
 let EVAL_TEMPLATES = null;
@@ -731,6 +760,7 @@ async function fillTemplateSelect(sel){
 async function openEvalModal(id){
   const c = candidates.find(x => x.application_id===id); if(!c) return;
   pendingEval = id;
+  pvReset("eval");
   const title = c.name_title || "";
   const name = c.full_name_edit || c.full_name_jobdb || "";
   const prefixName = title ? `${title} ${name}` : name;
@@ -757,16 +787,16 @@ async function openEvalModal(id){
     `${$("#evSection").value||"NA"}_Interview Evaluate Form for ${name||"Candidate"}.xlsx`; };
   $("#evSection").onchange = upd; upd();
   $("#evPosition").focus();
+  pvRender("eval");
 }
 window.openEvalModal = openEvalModal;
 function closeEvalModal(){ pendingEval=null; $("#evalModal").classList.remove("open"); }
 window.closeEvalModal = closeEvalModal;
 
-async function confirmEval(){
-  if(!pendingEval) return;
-  const id = pendingEval;
-  const payload = {
-    application_id: id,
+// The Evaluation popup's values — sent by Confirm and by the live preview alike.
+function evalPayload(){
+  return {
+    application_id: pendingEval,
     request_id: $("#evRequest").value || null,
     template: $("#evTemplate").value,
     position: $("#evPosition").value, role: $("#evRole").value.trim(),
@@ -774,6 +804,12 @@ async function confirmEval(){
     section: $("#evSection").value, interview_date: $("#evDate").value,
     interviewer: $("#evInterviewer").value.trim(), recruiter: $("#evRecruiter").value.trim(),
   };
+}
+
+async function confirmEval(){
+  if(!pendingEval) return;
+  const id = pendingEval;
+  const payload = evalPayload();
   const btn = $("#evalBtn"); btn.disabled = true; btn.textContent = "Creating…";
   try {
     const r = await (await fetch("/api/candidates/evaluation", {method:"POST",
@@ -797,6 +833,7 @@ let pendingOffer = null;
 function openOfferModal(id){
   const c = candidates.find(x => x.application_id===id); if(!c) return;
   pendingOffer = id;
+  pvReset("offer");
   const title = c.name_title || "";
   const name = c.full_name_edit || c.full_name_jobdb || "";
   const prefixName = title ? `${title} ${name}` : name;
@@ -825,6 +862,7 @@ function openOfferModal(id){
   $("#ofCount").focus();
   fetchOfferHeadline(id);                   // AI Experience headline (cached or generated)
   fetchOfferExperience(id);                 // AI Experience blurb (cached or generated)
+  pvRender("offer");
 }
 window.openOfferModal = openOfferModal;
 
@@ -839,7 +877,7 @@ async function fetchOfferHeadline(id, force=false){
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({application_id:id, force})})).json();
     if(pendingOffer !== id) return;          // popup changed/closed while generating
-    if(r.ok){ inp.value = r.headline || ""; }
+    if(r.ok){ inp.value = r.headline || ""; pvSchedule("offer", 0); }
     else { inp.placeholder = "Could not generate — type manually. (" + (r.error||"") + ")"; }
   } catch(e){ inp.placeholder = "Generation failed — type the experience manually."; }
   finally { inp.disabled = false; }
@@ -863,7 +901,7 @@ async function fetchOfferExperience(id, force=false){
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({application_id:id, force})})).json();
     if(pendingOffer !== id) return;          // popup changed/closed while generating
-    if(r.ok){ ta.value = r.experience || ""; }
+    if(r.ok){ ta.value = r.experience || ""; pvSchedule("offer", 0); }
     else { ta.placeholder = "Could not generate — type manually. (" + (r.error||"") + ")"; }
   } catch(e){ ta.placeholder = "Generation failed — type the experience manually."; }
   finally { ta.disabled = false; }
@@ -878,11 +916,10 @@ window.regenerateOfferExperience = regenerateOfferExperience;
 function closeOfferModal(){ pendingOffer=null; $("#offerModal").classList.remove("open"); }
 window.closeOfferModal = closeOfferModal;
 
-async function confirmOffer(){
-  if(!pendingOffer) return;
-  const id = pendingOffer;
-  const payload = {
-    application_id: id,
+// The Offer popup's values — sent by Confirm and by the live preview alike.
+function offerPayload(){
+  return {
+    application_id: pendingOffer,
     people_count: $("#ofCount").value.trim() || "1",
     offer_type: $("#ofType").value,
     new_replace_text: $("#ofNRText").value.trim(),
@@ -897,6 +934,12 @@ async function confirmOffer(){
     interviewer_comments: $("#ofInterviewComments").value,
     recruiter_comments: $("#ofRecruit").value,
   };
+}
+
+async function confirmOffer(){
+  if(!pendingOffer) return;
+  const id = pendingOffer;
+  const payload = offerPayload();
   const btn = $("#offerBtn"); btn.disabled = true; btn.textContent = "Creating…";
   try {
     const r = await (await fetch("/api/candidates/offer", {method:"POST",
@@ -912,6 +955,217 @@ async function confirmOffer(){
   } finally { btn.disabled = false; btn.textContent = "Confirm & create draft"; }
 }
 window.confirmOffer = confirmOffer;
+
+/* ---------- Live preview in the Evaluation / Offer popups ----------
+   The right-hand pane shows the Excel form and the Outlook draft exactly as Confirm
+   will build them: the server renders them with the same code (…/preview) and marks
+   every filled value with data-f=<field>. Blue-numbered values can be edited right
+   there — the change is written into the popup field, so form and preview stay in
+   sync. Grey ones come from the candidate record. */
+const PV = {
+  eval: {
+    modal: "#evalModal", url: "/api/candidates/evaluation/preview", payload: () => evalPayload(),
+    to: "(empty: you pick the interviewer in Outlook)",
+    fields: {
+      full_name:         { n: 1, tip: "From the candidate record (title + name)" },
+      template:          { n: 3, src: "#evTemplate", type: "select" },
+      position:          { n: 4, src: "#evPosition", type: "select" },
+      role:              { n: 5, src: "#evRole" },
+      company:           { n: 6, src: "#evCompany", type: "select" },
+      department:        { n: 7, src: "#evDept", type: "select" },
+      section:           { n: 8, src: "#evSection", type: "select" },
+      interview_date:    { n: 9, src: "#evDate", type: "date" },
+      interviewer:       { n: 10, src: "#evInterviewer" },
+      interviewer_first: { n: 10, src: "#evInterviewer", link: "interviewer" },   // "Dear Khun <first word>"
+      recruiter:         { n: 11, src: "#evRecruiter" },
+      signature:         { tip: "Your signature (from your profile)" },
+    },
+  },
+  offer: {
+    modal: "#offerModal", url: "/api/candidates/offer/preview", payload: () => offerPayload(),
+    to: "(empty: you fill it in Outlook)",
+    fields: {
+      people_count:         { n: 1, src: "#ofCount", type: "number" },
+      offer_type:           { n: 2, src: "#ofType", type: "select" },
+      new_replace_label:    { n: 2, src: "#ofType", type: "select", link: "offer_type" },   // New / Replace
+      new_replace_text:     { n: 3, src: "#ofNRText", list: "ofNRList" },
+      supervisor:           { n: 4, src: "#ofSupervisor" },
+      buddy:                { n: 5, src: "#ofBuddy" },
+      expected_salary:      { n: 6, src: "#ofExpSalary" },
+      current_salary:       { n: 7, src: "#ofCurSalary" },
+      start_date:           { n: 8, src: "#ofStart" },
+      experience:           { n: 9, src: "#ofExperience" },
+      experience_bullets:   { n: 10, src: "#ofExperienceAI", type: "multi" },
+      interviewer:          { n: 11, src: "#ofInterviewer" },
+      interviewer_comments: { n: 12, src: "#ofInterviewComments", type: "multi" },
+      recruiter_comments:   { n: 13, src: "#ofRecruit", type: "multi" },
+      prefix_name:          { n: 14, tip: "From the candidate record (title + name)" },
+      position:             { n: 15, tip: "From the candidate record (set at Evaluation)" },
+      job_level:            { n: 16, tip: "Worked out from the Position" },
+      role:                 { n: 17, tip: "From the candidate record (set at Evaluation), else the job title" },
+      department:           { n: 18, tip: "From the candidate record (set at Evaluation)" },
+      section:              { n: 19, tip: "From the candidate record (set at Evaluation)" },
+      link:                 { n: 20, tip: "Linked to the candidate's Shortlists folder on OneDrive when the draft is created" },
+      recruiter_firstname:  { n: 21, tip: "Your first name (from your profile)" },
+      today:                { n: 22, tip: "Today's date" },
+      signature:            { n: 23, tip: "Your signature for offer emails (from your profile)" },
+    },
+  },
+};
+for(const P of Object.values(PV)) Object.assign(P, { seq: 0, timer: null, editing: false });
+
+function pvStatus(kind, text, isErr=false){
+  const s = $(PV[kind].modal).querySelector(".pv-status");
+  s.textContent = text; s.classList.toggle("err", isErr);
+}
+// Clear the pane when the popup opens, so the previous candidate never shows.
+function pvReset(kind){
+  const P = PV[kind];
+  P.seq++; P.editing = false; clearTimeout(P.timer);
+  $(P.modal).querySelectorAll(".pv-xl, .pv-mail").forEach(el =>
+    el.innerHTML = `<div class="pv-wait">Building the preview…</div>`);
+  pvStatus(kind, "");
+}
+function pvSchedule(kind, ms=300){
+  const P = PV[kind]; clearTimeout(P.timer); P.timer = setTimeout(() => pvRender(kind), ms);
+}
+// Drop anything active from the server HTML (the offer body is an HR-edited template).
+function pvClean(html){
+  const doc = new DOMParser().parseFromString(`<body>${html || ""}</body>`, "text/html");
+  doc.querySelectorAll("script,style,link,meta,base,iframe,object,embed,form").forEach(n => n.remove());
+  doc.querySelectorAll("*").forEach(n => [...n.attributes].forEach(a => {
+    if(/^on/i.test(a.name) || (/^(href|src|action|formaction|xlink:href)$/i.test(a.name) && /^\s*javascript:/i.test(a.value)))
+      n.removeAttribute(a.name);
+  }));
+  return doc.body.innerHTML;
+}
+async function pvRender(kind){
+  const P = PV[kind], modal = $(P.modal);
+  if(!modal.classList.contains("open") || P.editing) return;
+  const seq = ++P.seq;
+  const slow = setTimeout(() => pvStatus(kind, "Updating…"), 300);
+  let r;
+  try {
+    r = await (await fetch(P.url, {method:"POST", headers:{"Content-Type":"application/json"},
+                                   body: JSON.stringify(P.payload())})).json();
+  } catch(e){ r = {ok:false, error:"Preview unavailable — " + e.message}; }
+  clearTimeout(slow);
+  if(seq !== P.seq || P.editing || !modal.classList.contains("open")) return;   // stale, or a value is being edited
+  if(!r.ok){ pvStatus(kind, r.error || "Preview failed", true); return; }
+  pvStatus(kind, "");
+  pvFill(kind, r);
+  pvDecorate(kind);
+}
+function pvFill(kind, r){
+  const P = PV[kind], pane = $(P.modal).querySelector(".pv-pane");
+  const xl = pane.querySelector(".pv-xl");
+  if(xl && r.cells){
+    const rows = {};   // row number -> its cells, in CELL_MAP order (2, 3, 4)
+    r.cells.forEach(c => (rows[c.cell.replace(/\D/g, "")] ||= []).push(c));
+    xl.innerHTML = `<div class="pv-xl-bar">📗 ${r.file_html}</div>
+      <div class="pv-xl-tmpl">Template: <span class="pv-f" data-f="template">${esc(r.template)}</span></div>
+      <table>${Object.entries(rows).map(([row, cells]) => `<tr><td class="rh">${row}</td>${cells.map(c =>
+        `<td class="lab">${esc(c.label)}</td><td class="val"><small>${esc(c.cell)}</small><span class="pv-f" data-f="${esc(c.key)}">${esc(c.value)}</span></td>`
+      ).join("")}</tr>`).join("")}</table>
+      <div class="pv-xl-note">Only these ${r.cells.length} cells are filled; the rest of the form is copied from the template unchanged.</div>`;
+  }
+  const folder = `${(ME && ME.prefix) || "your"}_Drafts`;
+  pane.querySelector(".pv-mail").innerHTML = `<div class="pv-mail-bar">✉ Draft · saved in <b>${esc(folder)}</b></div>
+    <div class="pv-mail-hdr">
+      <div><b>To</b><span class="pv-dim">${esc(P.to)}</span></div>
+      <div class="pv-subj"><b>Subject</b>${pvClean(r.subject_html)}</div>
+      ${r.file_html ? `<div class="pv-attline"><b>Attached</b><span class="pv-att">📎 ${r.file_html}</span></div>` : ""}
+    </div>
+    <div class="pv-mail-body${r.is_html === false ? " plain" : ""}">${pvClean(r.body_html)}</div>`;
+}
+// Give every marked value its link key, number badge, tooltip and (if editable) edit affordance.
+function pvDecorate(kind){
+  const P = PV[kind], pane = $(P.modal).querySelector(".pv-pane");
+  pane.querySelectorAll(".pv-f").forEach(el => {
+    const f = P.fields[el.dataset.f] || {}, editable = !!f.src;
+    el.dataset.k = f.link || el.dataset.f;
+    el.classList.add(editable ? "ed" : "db");
+    el.dataset.ph = editable ? "＋ add" : "(empty)";
+    el.title = editable ? "Click to edit" : (f.tip || "From the candidate record");
+    if(editable){ el.tabIndex = 0; el.setAttribute("role", "button"); }
+    const td = el.closest("td.val");
+    if(td){ td.dataset.k = el.dataset.k; td.classList.toggle("ed", editable); }
+    if(!f.n || el.closest(".pv-subj, .pv-xl-bar, .pv-att")) return;   // no badges in one-line headers
+    const b = document.createElement("span");
+    b.className = "pv-b" + (editable ? "" : " db"); b.textContent = f.n; b.dataset.k = el.dataset.k;
+    if(td) td.querySelector("small").append(" ", b); else el.after(b);
+  });
+  pane.querySelectorAll("a[href]").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+}
+// While typing in the preview, show the new text in the field's other spots right away.
+function pvMirror(kind, el, value){
+  const f = PV[kind].fields[el.dataset.f];
+  if(f.link || !["text", "number"].includes(f.type || "text")) return;   // derived/HTML values wait for the re-render
+  $(PV[kind].modal).querySelectorAll(`.pv-pane .pv-f[data-f="${el.dataset.f}"]`)
+    .forEach(o => { if(o !== el) o.textContent = value; });
+}
+// Click-to-edit: swap the value for an input bound to the popup field it came from.
+function pvEdit(kind, el){
+  const P = PV[kind], f = P.fields[el.dataset.f], src = f && f.src && $(f.src);
+  if(!src || el.querySelector(".pv-ed")) return;
+  const type = f.type || "text", before = src.value;
+  let ed;
+  if(type === "select"){ ed = document.createElement("select"); ed.innerHTML = src.innerHTML; }
+  else if(type === "multi"){ ed = document.createElement("textarea");
+    ed.rows = Math.min(12, Math.max(3, before.split("\n").length + 1)); }
+  else { ed = document.createElement("input"); ed.type = type === "text" ? "text" : type;
+    if(f.list) ed.setAttribute("list", f.list); }
+  ed.className = "pv-ed"; ed.value = before;
+  const fit = () => { if(ed.type === "text") ed.style.width = Math.min(Math.max(ed.value.length + 3, 8), 60) + "ch"; };
+  fit();
+  const shown = el.innerHTML;
+  P.editing = true;
+  el.replaceChildren(ed);
+  ed.focus();
+  if(type === "text" || type === "multi") ed.select();
+  let done = false;
+  const finish = keep => {
+    if(done) return; done = true;   // the editor's late blur/change events must not write again
+    if(!keep) src.value = before;
+    P.editing = false;
+    // Swap the editor out now (the re-render below restores the full formatting).
+    if(keep && !f.link && type !== "multi") el.textContent = src.value; else el.innerHTML = shown;
+    // Tell the popup field it changed (filename hint, New/Replace label, …), then re-render now.
+    src.dispatchEvent(new Event(type === "select" || type === "date" ? "change" : "input", {bubbles: true}));
+    pvSchedule(kind, 0);
+  };
+  ed.addEventListener("input", () => { if(done) return; src.value = ed.value; fit(); pvMirror(kind, el, ed.value); });
+  ed.addEventListener("change", () => { if(done) return; src.value = ed.value; if(type === "select") finish(true); });
+  ed.addEventListener("keydown", e => {
+    if(e.isComposing) return;   // Enter/Escape that only commit or cancel an IME candidate
+    if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); finish(false); }
+    else if(e.key === "Enter" && (type !== "multi" || e.ctrlKey || e.metaKey)){ e.preventDefault(); finish(true); }
+  });
+  ed.addEventListener("blur", () => finish(true));
+}
+for(const [kind, P] of Object.entries(PV)){
+  const modal = $(P.modal), pane = modal.querySelector(".pv-pane"), form = modal.querySelector(".pv-form");
+  form.addEventListener("input", () => pvSchedule(kind));
+  form.addEventListener("change", () => pvSchedule(kind, 0));
+  pane.addEventListener("click", e => {
+    if(e.target.closest(".pv-ed")) return;
+    const el = e.target.closest(".pv-f.ed") || e.target.closest("td.val.ed")?.querySelector(".pv-f.ed");
+    if(el){ e.preventDefault(); pvEdit(kind, el); }
+  });
+  pane.addEventListener("keydown", e => {
+    const el = e.target.closest(".pv-f.ed");
+    if(el && !e.target.closest(".pv-ed") && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); pvEdit(kind, el); }
+  });
+  // Hover any field (form label, Excel cell, email value, badge) to light up all its spots.
+  let lit = null;
+  const light = k => {
+    if(k === lit) return; lit = k;
+    modal.querySelectorAll(".pv-hl").forEach(el => el.classList.remove("pv-hl"));
+    if(k) modal.querySelectorAll(`[data-k="${CSS.escape(k)}"]`).forEach(el => el.classList.add("pv-hl"));
+  };
+  modal.addEventListener("mouseover", e => light(e.target.closest("[data-k]")?.dataset.k || null));
+  modal.addEventListener("mouseleave", () => light(null));
+}
 
 async function confirmMove(){
   const date = $("#modalDate").value;
