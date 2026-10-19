@@ -51,6 +51,7 @@ who did it, and the app's own logic says who is responsible for each candidate.
 | Usernames | **1-50 letters, dots, dashes or underscores** — no digits, no spaces (`db._USERNAME_RE`, and `pattern="[A-Za-z._\-]{1,50}"` on the forms; the `-` must stay escaped or Chromium ignores the pattern). |
 | Passwords | **SHA-256 only** (salted per user, stored as `sha256$<salt>$<digest>`). A bare SHA-256 hex digest also verifies. **No strength rules** (any length, may equal the old one) — only not blank, typed twice to match, and HR must give the current one to change it. |
 | Templates | Email templates live in the **database**, shared by all; the JSON file keeps only per-PC settings. **Admin and HR both create, edit and delete any template** (changed 2026-10-07; HR was view-only before). Mailbox sign-in stays Admin-only. |
+| Scraping | **Admin and HR can both use 🔄 Scrape from SEEK** (changed 2026-10-16; it was Admin-only). Only one scrape runs at a time. When SEEK asks to sign in, the Edge window opens on the PC that runs the board (10.33.10.51), not on the PC of the person who clicked. |
 | Signature | Since 2026-10-16, `{signature}` in a template = the **sender's label** (name / Mobile, Tel / E-mail lines) **for that template's type**. "Best regard," and the company footer stay in the template. The labels are kept in `dbo.user_signatures`; with no saved label, a default is built from the user's profile. You edit them in the **✍️ Signature** box on Email Templates: everyone edits their own, and an Admin can pick any user. Picking a Type in the template editor fills in that type's default Subject + Body: the 2026-10-16 live templates, kept in `email_kit/templates.py` `DEFAULT_*`. It asks first if you've edited the Body. The migration `debug/migration_20261016/migrate_signatures.py` swapped the typed-in labels for `{signature}` and saved them as Na's (exam, shortlist, offer) and Term's (exam) labels; a backup JSON sits next to it. |
 | Hiring requests | **Admin and HR both edit.** Each request records who created it and who last edited it (and when); everyone sees that in the list and on the form. Requests sit in a **Doing** tab until someone clicks **✔ Complete** (recorded who/when); **Completed** tab can **↩ Reopen**. |
 | Manual candidates | **Admin and HR can type a candidate in by hand** (➕ Add Candidate on a job's Pending stage, optional PDF résumé) for people who did not come through JobDB. Tagged `source='manual'`; the scraper can never match or overwrite them. **No owner on add** — the first move out of Pending still claims it, like every other card. |
@@ -201,7 +202,9 @@ node -e 'const fs=require("fs"),vm=require("vm");for(const f of fs.readdirSync("
 ### `webapp.py`
 - `current_user()` — from `session["uid"]`, cached in `flask.g`; must be active **and** approved.
 - `@before_request _require_login` — pages → `/login?next=…`, APIs → `401 {"login": true}`; binds the user as the active email-signature recruiter.
-- `admin_required` on: `/api/scrape/*`, `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
+- `admin_required` on: `/api/email/login-start`, `POST /api/users`, `POST /api/users/<id>/approve`.
+  `/api/scrape/*` is open to HR too since 2026-10-16. The SEEK window still opens on the PC
+  running the board, so a SEEK sign-in has to be done there.
 - Auth pages: `/setup`, `/login`, `/logout`; `/register` only redirects to `/login` (self-registration closed).
 - `/profile` (`profile_page`) — GET for everyone (own account); POST Admin only (403 for HR), keeps role/active/approved, blank password keeps the old one; `?saved=1` on success.
   `POST /profile/password` (`profile_password`, any signed-in user; the box is shown to HR) — `old_password`, `new_password`,

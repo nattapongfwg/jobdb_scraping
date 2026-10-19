@@ -266,8 +266,8 @@ def _require_login():
 
 
 def admin_required(view):
-    """Route guard: only the Admin role may call (scraping, mailbox sign-in,
-    user management). Email templates are edited by Admin and HR alike."""
+    """Route guard: only the Admin role may call (mailbox sign-in, user
+    management). Email templates and SEEK scraping are open to Admin and HR alike."""
     @wraps(view)
     def wrapper(*args, **kwargs):
         if not _is_admin():
@@ -589,7 +589,6 @@ def api_jobs():
 
 # -- SEEK scraping (background subprocess) ---------------------------------
 @app.post("/api/scrape/fetch-jobs")
-@admin_required
 def api_scrape_fetch_jobs():
     """Start fetching the active job ads from SEEK (logs in if needed)."""
     started = scraper_mgr.fetch_jobs()
@@ -597,7 +596,6 @@ def api_scrape_fetch_jobs():
 
 
 @app.post("/api/scrape/download")
-@admin_required
 def api_scrape_download():
     """Start downloading candidates + resumes for one selected job id."""
     data = request.get_json(force=True)
