@@ -550,7 +550,8 @@ function filtered(){
       return (av - bv) * dir;
     });
   }
-  return list;
+  // "Stop Here!" cards always go to the bottom (stable: keeps the order within each group).
+  return [...list.filter(c => !isStopped(c)), ...list.filter(isStopped)];
 }
 function stageCount(k){ return candidates.filter(c => (c.stage||"prescreen")===k && (!mineOnly || (ME && c.owner_email === ME.email))).length; }
 
@@ -1714,7 +1715,8 @@ async function fetchExtract(id, force){
 }
 
 // "Stop Here!" — stages 1.5 .. 5 only (server: db.STOP_STAGES). Marks the card with a
-// red border for everyone; clicking again clears it. Updates the card in place.
+// red border + grey background for everyone and moves it to the bottom of the list
+// (filtered()); clicking again clears it.
 const STOP_STAGES = new Set(["wait_prescreen","sent_exam","shortlist","interview","evaluation"]);
 const isStopped = c => !!c.is_stopped && STOP_STAGES.has(c.stage||"prescreen");
 function stopBtn(c){
@@ -1734,11 +1736,7 @@ async function toggleStop(id, btn){
       body: JSON.stringify({application_id:id, stopped:want})})).json();
     if(!r.ok) throw new Error(r.error || "failed");
     c.is_stopped = r.is_stopped;
-    const card = btn.closest(".cand-card");
-    if(card) card.classList.toggle("stopped", isStopped(c));
-    btn.classList.toggle("on", c.is_stopped);
-    btn.setAttribute("aria-pressed", String(c.is_stopped));
-    btn.title = c.is_stopped ? "Stopped — click again to clear" : "Mark this candidate to stop at this stage (red border)";
+    render();   // re-sort: a stopped card drops to the bottom, a cleared one goes back
   } catch(e){ toast("Could not change Stop Here!: "+e.message, 6000); }
   finally { btn.disabled = false; }
 }
