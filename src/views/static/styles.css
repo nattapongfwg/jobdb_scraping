@@ -237,6 +237,7 @@ input[data-phone]:invalid, .auth-card input[data-phone]:invalid { border-color: 
 .s-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: var(--bg-2); font-size: 12px; color: var(--gold-2); }
 .stage-item.active .s-num { background: var(--blue); color: #fff; }
 .s-count { font-size: 12px; color: var(--muted); }
+.s-stopped { color: var(--red); font-weight: 700; }   /* "Stop Here!" count: 14 (5) */
 .stage-item.drop-ok { border-color: var(--green); background: var(--green-bg); box-shadow: 0 0 0 2px var(--green-bg); }
 .stage-item.drop-no { opacity: .4; }
 
