@@ -700,10 +700,10 @@ html { background: var(--bg); }            /* avoids a white flash between pages
 }
 .scrape-log { background: rgba(10, 6, 5, .92); }
 
-/* "Stop Here!" on the pipeline board: a red border and a light red background on the
-   card (wins over hover), and the button turns solid red while the mark is on. */
+/* "Stop Here!" on the pipeline board: a red border and a light black (grey) background
+   on the card (wins over hover), and the button turns solid red while the mark is on. */
 .cand-card.stopped, .cand-card.stopped:hover {
-  background: #fde4e1;
+  background: #d9d7d2;
   border-color: var(--red);
   box-shadow: 0 0 0 2px var(--red), 0 8px 24px rgba(70, 45, 20, .14);
 }
