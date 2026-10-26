@@ -313,11 +313,19 @@ IF COL_LENGTH('dbo.applicants', 'owner_email') IS NULL
 -- scraper's MERGE can never match or overwrite it).
 IF COL_LENGTH('dbo.applicants', 'source') IS NULL
     ALTER TABLE dbo.applicants ADD [source] NVARCHAR(20) NULL;
+-- "Stop Here!" mark on the pipeline board (stages Wait Pre-screen .. Evaluation):
+-- 1 = HR stopped this candidate at their current stage, shown as a red card border.
+-- Clicked again clears it; each change is logged in stage_history ('stop'/'unstop').
+IF COL_LENGTH('dbo.applicants', 'is_stopped') IS NULL
+    ALTER TABLE dbo.applicants ADD is_stopped BIT NOT NULL
+        CONSTRAINT DF_applicants_is_stopped DEFAULT 0;
 GO
 
 -- Audit trail: who moved which candidate where, and when (multi-user Phase 2).
--- action: 'move' | 'exam_sent' | 'exam_resent' | 'exam_failed' | 'owner' | 'added'
+-- action: 'move' | 'exam_sent' | 'exam_resent' | 'exam_failed' | 'owner' | 'added' |
+--         'stop' | 'unstop'
 -- ('added' = a recruiter typed the candidate in by hand; to_value = the starting stage).
+-- ('stop' / 'unstop' = the "Stop Here!" mark was set / cleared; to_value = the stage it was on).
 -- from_value/to_value hold stage keys for moves and owner emails for 'owner'.
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'stage_history')
 BEGIN

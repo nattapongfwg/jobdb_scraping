@@ -56,6 +56,19 @@ def api_candidate_owner():
     return jsonify(res), (200 if res.get("ok") else 404)
 
 
+@bp.post("/api/candidates/stop")
+def api_candidate_stop():
+    """Set or clear the "Stop Here!" mark (red card border).
+    Body: {application_id, stopped: true|false}."""
+    data = request.get_json(force=True)
+    aid = str(data.get("application_id", "")).strip()
+    if not aid:
+        return jsonify({"ok": False, "error": "application_id required"}), 400
+    with Database(cfg) as db:
+        res = db.set_stopped(aid, bool(data.get("stopped")), actor=current_email())
+    return jsonify(res), (200 if res.get("ok") else 400)
+
+
 @bp.get("/api/candidates/history")
 def api_candidate_history():
     """Who moved / emailed / reassigned this candidate, newest first."""

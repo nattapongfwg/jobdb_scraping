@@ -699,3 +699,13 @@ html { background: var(--bg); }            /* avoids a white flash between pages
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), 0 8px 24px rgba(70, 45, 20, .14);
 }
 .scrape-log { background: rgba(10, 6, 5, .92); }
+
+/* "Stop Here!" on the pipeline board: a red border on the card (wins over hover),
+   and the button turns solid red while the mark is on. */
+.cand-card.stopped, .cand-card.stopped:hover {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px var(--red), 0 8px 24px rgba(70, 45, 20, .14);
+}
+.btn.stop-btn { color: var(--red); }
+.btn.stop-btn:hover { border-color: var(--red); }
+.btn.stop-btn.on { background: var(--red); border-color: var(--red); color: #fff; }

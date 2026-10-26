@@ -113,7 +113,7 @@ STAGE_LABELS = {
 # effects (email/draft/folder move), and set_stage preserves the recorded dates.
 ALLOWED_MOVES = {
     "prescreen":      ["wait_prescreen", "not_interest"],  # forward first, off-ramp second
-    "wait_prescreen": ["sent_exam", "not_interest"],       # forward to exam, or off-ramp
+    "wait_prescreen": ["sent_exam"],                       # forward to exam only (no off-ramp)
     "not_interest":   ["prescreen"],
     "sent_exam":      ["shortlist", "wait_prescreen"],
     "shortlist":      ["interview", "sent_exam"],
@@ -121,6 +121,8 @@ ALLOWED_MOVES = {
     "evaluation":     ["offered", "interview"],
     "offered":        ["evaluation"],
 }
+# Stages whose cards show the "Stop Here!" button (1.5 Wait Pre-screen .. 5 Evaluation).
+STOP_STAGES = {"wait_prescreen", "sent_exam", "shortlist", "interview", "evaluation"}
 # Which date column each stage records when a candidate is moved into it. The
 # "Sent Exam" stage has no date column — it sets is_sent_exam/exam_sent_at instead.
 STAGE_DATE_COLUMN = {
@@ -414,7 +416,8 @@ class Database:
         "current_salary_edit, minimum_expect_salary_edit, expect_salary_edit, "      # r[41]-r[43] (HR salary fields)
         "request_id, "                                                               # r[44] (linked hiring request)
         "owner_email, "                                                              # r[45] (responsible recruiter)
-        "[source]"                                                                   # r[46] (NULL = scraped, 'manual' = typed in)
+        "[source], "                                                                 # r[46] (NULL = scraped, 'manual' = typed in)
+        "is_stopped"                                                                 # r[47] ("Stop Here!" red mark)
     )
 
     @staticmethod
@@ -453,6 +456,7 @@ class Database:
             "request_id": r[44],
             "owner_email": r[45],
             "source": r[46],
+            "is_stopped": bool(r[47]),
         }
 
     def list_candidates(self, job_id: str, name_query: str = "") -> list[dict[str, Any]]:
@@ -599,6 +603,29 @@ class Database:
         self._log_history(cur, application_id, "owner", row[0], owner_email, actor)
         self.conn.commit()
         return {"ok": True, "owner_email": owner_email}
+
+    def set_stopped(self, application_id: str, stopped: bool,
+                    actor: str | None = None) -> dict[str, Any]:
+        """Set (or clear) the "Stop Here!" mark, recording the change in stage_history.
+        Takes the wanted value rather than toggling, so two teammates clicking at
+        once end up agreeing instead of flipping it back and forth. Only allowed on
+        the stages that show the button (STOP_STAGES)."""
+        cur = self.conn.cursor()
+        row = cur.execute("SELECT stage, is_stopped FROM dbo.applicants WHERE application_id = ?",
+                          application_id).fetchone()
+        if not row:
+            return {"ok": False, "error": "Candidate not found"}
+        stage = row[0] or "prescreen"
+        if stage not in STOP_STAGES:
+            return {"ok": False, "error":
+                    f"Stop Here! is not available in {STAGE_LABELS.get(stage, stage)}."}
+        if bool(row[1]) != stopped:
+            cur.execute("UPDATE dbo.applicants SET is_stopped = ? WHERE application_id = ?",
+                        1 if stopped else 0, application_id)
+            self._log_history(cur, application_id, "stop" if stopped else "unstop",
+                              None, stage, actor)
+            self.conn.commit()
+        return {"ok": True, "is_stopped": stopped}
 
     def list_history(self, application_id: str) -> list[dict[str, Any]]:
         """A candidate's audit trail, newest first, with the actor's display name."""

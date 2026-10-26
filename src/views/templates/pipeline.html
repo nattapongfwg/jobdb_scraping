@@ -515,6 +515,8 @@ function histText(h){
     case "exam_failed": return `Exam email failed · back to ${lbl(h.to_value)}`;
     case "owner":       return `Owner ${who(h.from_value)} → ${who(h.to_value)}`;
     case "added":       return `Added by hand → ${lbl(h.to_value)}`;
+    case "stop":        return `🛑 Stop Here! · ${lbl(h.to_value)}`;
+    case "unstop":      return `Stop Here! cleared · ${lbl(h.to_value)}`;
     default:            return h.action || "";
   }
 }
@@ -1711,6 +1713,37 @@ async function fetchExtract(id, force){
   }
 }
 
+// "Stop Here!" — stages 1.5 .. 5 only (server: db.STOP_STAGES). Marks the card with a
+// red border for everyone; clicking again clears it. Updates the card in place.
+const STOP_STAGES = new Set(["wait_prescreen","sent_exam","shortlist","interview","evaluation"]);
+const isStopped = c => !!c.is_stopped && STOP_STAGES.has(c.stage||"prescreen");
+function stopBtn(c){
+  if(!STOP_STAGES.has(c.stage||"prescreen")) return "";
+  const on = !!c.is_stopped;
+  return `<button class="btn tiny secondary stop-btn${on?" on":""}" aria-pressed="${on}"
+    onclick="toggleStop('${esc(c.application_id)}', this)"
+    title="${on?"Stopped — click again to clear":"Mark this candidate to stop at this stage (red border)"}">🛑 Stop Here!</button>`;
+}
+async function toggleStop(id, btn){
+  const c = candidates.find(x => x.application_id===id); if(!c) return;
+  const want = !c.is_stopped;
+  btn.disabled = true;
+  try {
+    const r = await (await fetch("/api/candidates/stop", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({application_id:id, stopped:want})})).json();
+    if(!r.ok) throw new Error(r.error || "failed");
+    c.is_stopped = r.is_stopped;
+    const card = btn.closest(".cand-card");
+    if(card) card.classList.toggle("stopped", isStopped(c));
+    btn.classList.toggle("on", c.is_stopped);
+    btn.setAttribute("aria-pressed", String(c.is_stopped));
+    btn.title = c.is_stopped ? "Stopped — click again to clear" : "Mark this candidate to stop at this stage (red border)";
+  } catch(e){ toast("Could not change Stop Here!: "+e.message, 6000); }
+  finally { btn.disabled = false; }
+}
+window.toggleStop = toggleStop;
+
 function moveBtn(id, tk, curr){
   const label = STAGE_LABEL[tk];
   if(tk==="not_interest") return `<button class="btn tiny secondary" onclick="requestMove('${esc(id)}','not_interest')">✕ ${label}</button>`;
@@ -1747,7 +1780,7 @@ function renderCards(){
   }
   html += list.map(c => {
     const id = c.application_id, name = c.full_name_edit || c.full_name_jobdb || "?";
-    return `<div class="cand-card${selectedStage==="sent_exam"?" selectable":""}" draggable="false" data-id="${esc(id)}">
+    return `<div class="cand-card${selectedStage==="sent_exam"?" selectable":""}${isStopped(c)?" stopped":""}" draggable="false" data-id="${esc(id)}">
       ${selectedStage==="sent_exam" ? `<label class="sel-check" title="Select"><input type="checkbox" class="cand-select" data-id="${esc(id)}" ${selectedIds.has(id)?"checked":""}></label>` : ""}
       <div class="cand-avatar">${esc(name[0]||"?")}</div>
       <div class="cand-body">
@@ -1782,6 +1815,7 @@ function renderCards(){
       <div class="cand-actions">
         ${c.resume_downloaded?`<button class="btn tiny secondary" onclick="openResume('${esc(id)}', this.closest('.cand-card').querySelector('.cd-edit[data-f=full_name_edit]').value)">📄 Resume</button>`:`<button class="btn tiny secondary" disabled title="No resume on file">📄 No resume</button>`}
         ${allowedTargets(c.stage||"prescreen").map(tk => moveBtn(id, tk, c.stage||"prescreen")).join("")}
+        ${stopBtn(c)}
         <button class="btn tiny secondary" onclick="openHistory('${esc(id)}')" title="Who moved this candidate, and when">🕘</button>
       </div>
     </div>`;
