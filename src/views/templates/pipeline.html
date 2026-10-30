@@ -1749,8 +1749,8 @@ window.toggleStop = toggleStop;
 function moveBtn(id, tk, curr){
   const label = STAGE_LABEL[tk];
   if(tk==="not_interest") return `<button class="btn tiny secondary" onclick="requestMove('${esc(id)}','not_interest')">✕ ${label}</button>`;
-  // Backward targets (incl. the Pending off-ramp return) get a back-arrow + ghost style.
-  if(tk==="prescreen" || isBackward(curr, tk))
+  // Backward targets get a back-arrow + ghost style.
+  if(isBackward(curr, tk))
     return `<button class="btn tiny secondary" onclick="requestMove('${esc(id)}','${tk}')">← ${label}</button>`;
   return `<button class="btn tiny" onclick="requestMove('${esc(id)}','${tk}')">${label} →</button>`;
 }

@@ -27,8 +27,9 @@ JobDB employer-portal scraper. Two halves:
    manages candidates through a branching pipeline, sends templated emails, generates Excel
    evaluation forms, creates Outlook calendar events, and gets AI résumé summaries.
 
-**Pipeline stages:** Not Interest ⇄ Pending → Sent Exam → Shortlist → Interview →
-Evaluation → Offered (moves are one-step, server-enforced).
+**Pipeline stages:** Not Interest ← Pending → Wait Pre-screen → Sent Exam → Shortlist →
+Interview → Evaluation → Offered; Not Interest → Wait Pre-screen (moves are one-step,
+server-enforced).
 
 ### Module map
 

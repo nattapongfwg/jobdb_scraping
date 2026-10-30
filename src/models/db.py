@@ -106,15 +106,16 @@ STAGE_LABELS = {
 }
 # Allowed stage transitions (branching, not strictly linear):
 #   Not Interest ← Pending → Wait Pre-screen → Sent Exam → Shortlist → Interview → Evaluation → Offered
+#   Not Interest → Wait Pre-screen
 # Pending advances to Wait Pre-screen (or the Not Interest off-ramp). Wait Pre-screen
-# can go to Sent Exam or Not Interest. Not Interest can only go back to Pending.
+# can only go to Sent Exam. Not Interest can only go on to Wait Pre-screen.
 # Each list = forward target(s) first, then the one-step "back" target. A backward
 # move is a plain stage correction: the webapp does NOT fire that stage's side
 # effects (email/draft/folder move), and set_stage preserves the recorded dates.
 ALLOWED_MOVES = {
     "prescreen":      ["wait_prescreen", "not_interest"],  # forward first, off-ramp second
     "wait_prescreen": ["sent_exam"],                       # forward to exam only (no off-ramp)
-    "not_interest":   ["prescreen"],
+    "not_interest":   ["wait_prescreen"],                  # reconsidered → straight to pre-screen
     "sent_exam":      ["shortlist", "wait_prescreen"],
     "shortlist":      ["interview", "sent_exam"],
     "interview":      ["evaluation", "shortlist"],
